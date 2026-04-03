@@ -1023,14 +1023,27 @@
     iconChecklist.style.display = 'none';
     iconPencil.style.display = '';
 
-    // Parse textarea content into checklist items if no checklist data already exists
-    if (!note.checklist || note.checklist.length === 0) {
-      const lines = (note.content || '').split('\n').filter(function (l) { return l.trim() !== ''; });
-      note.checklist = lines.map(function (line) {
-        return { id: generateId(), text: line, checked: false };
+    // Always sync from textarea to checklist
+    const currentText = editorTextarea.value || '';
+    const lines = currentText.split('\n').filter(function (l) { return l.trim() !== ''; });
+    
+    // Preserve state of existing checklist items if their text matches exactly
+    const existingChecklist = note.checklist || [];
+    const usedIds = {};
+    
+    note.checklist = lines.map(function (line) {
+      // Find a matching item that hasn't been used yet
+      const match = existingChecklist.find(function(item) {
+        return item.text === line && !usedIds[item.id];
       });
-    }
-    // Ensure note.mode is set
+      
+      if (match) {
+        usedIds[match.id] = true;
+        return { id: match.id, text: match.text, checked: match.checked };
+      }
+      return { id: generateId(), text: line, checked: false };
+    });
+
     note.mode = 'list';
     saveData();
 
@@ -1044,16 +1057,23 @@
     iconChecklist.style.display = '';
     iconPencil.style.display = 'none';
 
-    // Reconstruct text content from checklist
-    if (note.checklist && note.checklist.length > 0) {
-      const allItems = note.checklist;
-      note.content = allItems.map(function (item) { return item.text; }).join('\n');
-    }
+    // Always sync from checklist to textarea
+    const allItems = note.checklist || [];
+    
+    // Render order: Pending items first, then Completed items
+    const pending = allItems.filter(function(i) { return !i.checked; });
+    const completed = allItems.filter(function(i) { return i.checked; });
+    const orderedItems = pending.concat(completed);
+    
+    // Save the ordered checklist so text mode matches the visual list order
+    note.checklist = orderedItems;
+    note.content = orderedItems.map(function (item) { return item.text; }).join('\n');
+    
     note.mode = 'note';
     saveData();
 
     editorTextarea.style.display = '';
-    editorTextarea.value = note.content || '';
+    editorTextarea.value = note.content;
     checklistContainer.style.display = 'none';
     updateCharCount();
   }

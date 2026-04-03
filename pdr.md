@@ -40,7 +40,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
   - L'icona in alto cambia in una "matitina", che se premuta riporta alla modalità di testo semplice (ripristina la nota unendo le righe).
   - Ogni riga della lista presenta: un quadratino spuntabile a sinistra, il testo editabile della riga, e l'icona del cestino a destra per cancellarla.
   - Spuntando un elemento, questo viene disattivato (testo sbarrato, minore opacità) e spostato in una sezione inferiore "Completato".
-  - Tenendo premuta una riga (ad eccezione delle icone e testo interno) è possibile trascinarla in su o giù per riordinarla rispetto alle altre righe attive.
+  - Tenendo premuta una riga (incluso il testo interno, ad eccezione dei pulsanti specifici come checkbox o cestino) è possibile trascinarla in su o giù per riordinarla rispetto alle altre righe attive.
   - È possibile aggiungere nuove righe rapidamente tramite il campo testuale dedicato posizionato dopo l'ultimo elemento attivo ma prima della sezione di quelli completati.
 
 ## 6. Visualizzazione Elementi nella Lista
