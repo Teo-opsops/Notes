@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Notes — App minimale per creare e organizzare le tue note.">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Notes</title>
+
+  <!-- PWA Manifest & App Icon -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- ── Top Bar ── -->
+    <div class="top-bar">
+      <button id="top-bar-back" class="top-bar-back hidden" aria-label="Indietro">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div id="top-bar-title" class="top-bar-title">Notes</div>
+      <div class="top-bar-actions">
+        <button id="settings-btn" class="top-bar-icon" aria-label="Impostazioni">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Breadcrumb ── -->
+    <div id="breadcrumb" class="breadcrumb"></div>
+
+    <!-- ── Content ── -->
+    <div id="content-area" class="content-area">
+
+      <!-- Empty State -->
+      <div id="empty-state" class="empty-state" style="display:none;">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <div class="empty-state-text">Nessun elemento.<br>Tocca <strong>+</strong> per creare una cartella o una nota.</div>
+      </div>
+
+      <!-- Item List -->
+      <div id="item-list" class="item-list"></div>
+
+    </div>
+
+  </div>
+
+  <div class="fab-container">
+    <button id="fab-new-folder" class="fab" aria-label="Nuova Cartella">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="16" y1="14" x2="16" y2="20"/><line x1="13" y1="17" x2="19" y2="17"/></svg>
+    </button>
+    <button id="fab-new-note" class="fab" aria-label="Nuova Nota">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="14" x2="16" y2="20"/><line x1="13" y1="17" x2="19" y2="17"/></svg>
+    </button>
+  </div>
+
+  <!-- ── Modal (New Folder / Rename) ── -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal-box">
+      <div id="modal-title" class="modal-title">Nuova Cartella</div>
+      <input id="modal-input" class="modal-input" type="text" placeholder="Nome cartella" autocomplete="off">
+      <div class="modal-actions">
+        <button id="modal-cancel" class="modal-btn modal-btn-cancel">Annulla</button>
+        <button id="modal-confirm" class="modal-btn modal-btn-confirm">Crea</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Context Menu (Long Press) ── -->
+  <div id="context-overlay" class="context-overlay">
+    <div class="context-menu">
+      <div class="context-menu-header">
+        <div id="context-title" class="context-menu-header-title"></div>
+        <div id="context-type" class="context-menu-header-type"></div>
+      </div>
+      <button id="context-rename" class="context-menu-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        <span>Rinomina</span>
+      </button>
+      <button id="context-delete" class="context-menu-item danger">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span>Elimina</span>
+      </button>
+    </div>
+  </div>
+
+    <!-- ── Drag to Trash Zone ── -->
+    <div id="drag-trash-zone">
+      <div style="display:flex; flex-direction:column; align-items:center;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span style="font-size:0.85rem; font-weight:600; margin-top:4px;">Rilascia per eliminare</span>
+      </div>
+    </div>
+
+    <!-- ── Note Editor (Full Screen) ── -->
+    <div id="editor-view" class="editor-view">
+      <div class="editor-top-bar">
+        <button id="editor-back-btn" class="editor-back-btn" aria-label="Torna indietro">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style="flex:1;"></div>
+        <button id="editor-toggle-list" class="top-bar-icon" aria-label="Passa a lista">
+          <svg id="icon-checklist" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 11 12 14 22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <svg id="icon-pencil" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="editor-content-wrapper">
+        <input type="text" id="editor-title-input" class="editor-title-input" placeholder="Titolo" autocomplete="off">
+        <!-- Note mode -->
+        <textarea id="editor-textarea" class="editor-textarea" placeholder="Inizia a scrivere..."></textarea>
+        <!-- List mode -->
+        <div id="checklist-container" class="checklist-container" style="display:none;">
+          <div id="checklist-items" class="checklist-items"></div>
+          <div id="checklist-add" class="checklist-add">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <input type="text" id="checklist-new-input" class="checklist-new-input" placeholder="Aggiungi elemento..." autocomplete="off">
+          </div>
+          <div id="checklist-completed-section" class="checklist-completed-section" style="display:none;">
+            <div class="checklist-completed-header">Completato</div>
+            <div id="checklist-completed-items" class="checklist-items"></div>
+          </div>
+        </div>
+      </div>
+      <div class="editor-footer">
+        <div id="editor-char-count" class="editor-char-count">0 caratteri</div>
+      </div>
+    </div>
+
+    <!-- ── Settings Modal ── -->
+    <div id="settings-overlay" class="modal-overlay">
+      <div class="settings-menu">
+        <div class="settings-header">
+          <h2 class="settings-title">Impostazioni</h2>
+          <button id="settings-close" class="settings-close">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        
+        <div class="settings-card">
+          <div class="settings-card-title">Aspetto</div>
+          <div class="settings-row">
+            <span>Tema Colore</span>
+            <div class="theme-selector">
+              <div class="theme-dot" data-theme="cyan" style="background:#38bdf8"></div>
+              <div class="theme-dot" data-theme="emerald" style="background:#34d399"></div>
+              <div class="theme-dot" data-theme="violet" style="background:#a78bfa"></div>
+              <div class="theme-dot" data-theme="coral" style="background:#fb7185"></div>
+              <div class="theme-dot" data-theme="gold" style="background:#fbbf24"></div>
+              <div class="theme-dot active" data-theme="white" style="background:#ffffff"></div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span>AMOLED True Black</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="amoled-toggle" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-title">Cestino</div>
+          <button id="open-trash-btn" class="settings-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Apri Cestino
+          </button>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-title">Dati Backup</div>
+          <button id="export-btn" class="settings-btn">Esporta Dati (.json)</button>
+          <label for="import-input" class="settings-btn text-center">Importa Dati</label>
+          <input type="file" id="import-input" accept=".json" style="display:none;">
+          <button id="reset-btn" class="settings-btn danger">Cancella tutti i dati</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Trash Modal / View ── -->
+    <div id="trash-view" class="editor-view">
+      <div class="editor-top-bar">
+        <button id="trash-back-btn" class="editor-back-btn" aria-label="Torna indietro">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="editor-title" style="flex:1;">Cestino</div>
+        <button id="empty-trash-btn" class="settings-btn danger" style="padding:4px 10px; font-size:0.75rem; margin-right:8px; width:auto; border-radius:12px;">Svuota</button>
+      </div>
+      <div class="content-area" style="padding-bottom:20px;">
+        <div id="trash-list" class="item-list"></div>
+        <div id="trash-empty-state" class="empty-state" style="display:none;">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <div class="empty-state-text" style="font-size:0.8rem;">Il cestino è vuoto</div>
+        </div>
+      </div>
+    </div>
+
+  </div> <!-- /#app -->
+
+  <!-- App Script -->
+  <script src="app.js" charset="utf-8"></script>
+
+</body>
+</html>
