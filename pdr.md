@@ -57,7 +57,10 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Note**: Mostrate con un'icona documento SVG minimal, titolo a destra, con un'anteprima del testo sotto in grigio e data dell'ultima modifica.
 
 ## 7. Azioni sugli Elementi e Meccaniche Cestino
-- **Gestione Touch Intelligente**: Il sistema distingue tre gesti: tocco e rilascio (tap) = apre l'elemento; movimento verticale = scroll nativo della lista; movimento orizzontale = swipe per eliminare. La cattura del pointer avviene solo quando viene confermato uno swipe orizzontale, permettendo lo scroll fluido della lista anche toccando sopra le card.
+- **Gestione Touch Intelligente**: Il sistema distingue in modo robusto tre gesti:
+  - **Tap (tocco e breve rilascio)**: Apre l'elemento (cartella o nota). Per prevenire aperture accidentali durante lo scorrimento, il tap viene annullato in caso di spostamento del dito superiore a 15px o se interrotto da uno scroll nativo del browser (`pointercancel`).
+  - **Movimento verticale (scroll)**: Scorre nativamente la lista delle note.
+  - **Movimento orizzontale (swipe)**: Elimina l'elemento. La cattura del pointer ("pointer capture") avviene solo quando viene confermato un movimento laterale intenzionale, permettendo nel resto dei casi uno scorrimento fluido e naturale della lista.
 - **Tap su Cartella**: Naviga dentro la cartella.
 - **Tap su Nota**: Apre l'editor a schermo intero.
 - **Swipe Laterale Orizzontale**: Scorrendo su un elemento (cartella o nota) a destra o sinistra, la card si sposta rivelando lo sfondo scuro dell'app con l'icona del cestino nel colore del tema. Lo sfondo dello swipe è trasparente per permettere di vedere chiaramente la card che scorre. L'icona si ingrandisce fluidamente in base allo scorrimento (scaling progressivo da 0.8 a 1.3). Oltrepassata la soglia di 80px, l'elemento viene eliminato con un'animazione fluida di contrazione.

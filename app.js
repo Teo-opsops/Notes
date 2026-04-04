@@ -423,12 +423,17 @@
               if (ir) { ir.style.opacity = '0'; ir.style.transform = 'scale(0.8)'; }
               setTimeout(function() { card.style.transition = ''; }, 300);
             }
-          } else if (!isDragging && !longPressTriggered) {
-             // Tap: open note/folder
-             if (item.type === 'folder') {
-               navigateToFolder(item.id);
-             } else {
-               openNoteEditor(item.id);
+          } else if (!isDragging && !longPressTriggered && e.type !== 'pointercancel') {
+             const dx = e.clientX !== undefined ? Math.abs(e.clientX - startX) : 0;
+             const dy = e.clientY !== undefined ? Math.abs(e.clientY - startY) : 0;
+             
+             if (dx < 15 && dy < 15) {
+               // Tap: open note/folder
+               if (item.type === 'folder') {
+                 navigateToFolder(item.id);
+               } else {
+                 openNoteEditor(item.id);
+               }
              }
           }
           currentX = 0;
