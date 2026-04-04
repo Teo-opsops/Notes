@@ -1633,7 +1633,10 @@
         googleUser = JSON.parse(savedUser);
         showSignedInUI();
         // Token needs to be refreshed (tokens don't persist across sessions)
-        // but we show the UI as if signed in, and re-auth silently when needed
+        // Request token silently at startup to automatically connect and sync
+        if (tokenClient) {
+          tokenClient.requestAccessToken({ prompt: '' });
+        }
       } catch (e) {
         localStorage.removeItem('notesGoogleUser');
       }
@@ -1676,8 +1679,14 @@
       };
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
-      // Check for conflicts before syncing
-      firstSyncCheck();
+      
+      // If we already synced in the past, perform a silent sync directly to start auto-sync.
+      // Otherwise, do the firstSyncCheck to handle potential conflicts with modal.
+      if (localStorage.getItem('notesLastSync')) {
+        syncWithDrive(true);
+      } else {
+        firstSyncCheck();
+      }
     })
     .catch(function (err) {
       console.error('Failed to fetch user info:', err);
@@ -1734,14 +1743,19 @@
           } else {
             // Token expired, request new one
             googleAccessToken = null;
-            tokenClient.requestAccessToken({ prompt: '' });
+            if (tokenClient) {
+              tokenClient.requestAccessToken({ prompt: '' });
+            }
             // The callback will handle it, but we can't easily chain
             reject(new Error('Token expired, re-authenticating...'));
           }
         })
         .catch(function () { reject(new Error('Token validation failed')); });
       } else {
-        reject(new Error('No token available'));
+        if (tokenClient && googleUser) {
+          tokenClient.requestAccessToken({ prompt: '' });
+        }
+        reject(new Error('No token available, requesting...'));
       }
     });
   }
@@ -2004,7 +2018,7 @@
     _originalSaveData();
     hasPendingChanges = true;
     // Trigger silent auto-sync if connected
-    if (googleUser && googleAccessToken) {
+    if (googleUser) {
       clearTimeout(autoSyncTimer);
       autoSyncTimer = setTimeout(function () {
         syncWithDrive(true);
@@ -2014,12 +2028,12 @@
 
   // Sync when app is closed/hidden — ONLY if there are pending changes
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser && googleAccessToken) {
+    if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser) {
       syncWithDrive(true);
     }
   });
   window.addEventListener('beforeunload', function () {
-    if (hasPendingChanges && googleUser && googleAccessToken) {
+    if (hasPendingChanges && googleUser) {
       syncWithDrive(true);
     }
   });
