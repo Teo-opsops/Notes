@@ -36,6 +36,7 @@
   const contextTitle = document.getElementById('context-title');
   const contextType = document.getElementById('context-type');
   const contextRename = document.getElementById('context-rename');
+  const contextDownload = document.getElementById('context-download');
   const contextDelete = document.getElementById('context-delete');
 
   const editorView = document.getElementById('editor-view');
@@ -685,6 +686,7 @@
 
     // Show/hide rename option (only for folders)
     contextRename.style.display = item.type === 'folder' ? 'flex' : 'none';
+    contextDownload.style.display = 'flex';
 
     contextOverlay.classList.add('visible');
     history.pushState({ view: 'context' }, '');
@@ -740,6 +742,90 @@
         deleteRecursive(item.id);
         saveData();
         renderItems();
+      }
+    }, 200);
+  });
+
+  // ── Download Handling ──
+  function getNoteContentAsText(note) {
+    let title = getNoteTitle(note);
+    let text = '=== ' + title + ' ===\n\n';
+    if (note.mode === 'list' && note.checklist && note.checklist.length > 0) {
+      text += note.checklist.map(function(item) {
+        return (item.checked ? '[x] ' : '[ ] ') + item.text;
+      }).join('\n');
+    } else {
+      text += note.content || '';
+    }
+    return text;
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function downloadNoteText(note) {
+    let title = getNoteTitle(note) || 'Nota';
+    title = title.replace(/[\/\?<>\\:\*\|":]/g, '').trim() || 'Nota';
+    const text = getNoteContentAsText(note);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    downloadBlob(blob, title + '.txt');
+  }
+
+  function addFolderToZip(zipFolder, folderId) {
+    const children = getChildren(folderId);
+    children.forEach(function(child) {
+      if (child.deleted) return;
+      if (child.type === 'note') {
+        const text = getNoteContentAsText(child);
+        let title = getNoteTitle(child) || 'Nota';
+        title = title.replace(/[\/\?<>\\:\*\|":]/g, '').trim() || 'Nota';
+        zipFolder.file(title + ' - ' + child.id.substring(0,4) + '.txt', text);
+      } else if (child.type === 'folder') {
+        let name = child.name || 'Cartella';
+        name = name.replace(/[\/\?<>\\:\*\|":]/g, '').trim() || 'Cartella';
+        const subFolder = zipFolder.folder(name + ' - ' + child.id.substring(0,4));
+        addFolderToZip(subFolder, child.id);
+      }
+    });
+  }
+
+  function downloadFolderZip(folder) {
+    if (!window.JSZip) {
+      alert("La libreria di download non è ancora pronta. Riprova tra poco.");
+      return;
+    }
+    const zip = new JSZip();
+    let name = folder.name || 'Cartella';
+    name = name.replace(/[\/\?<>\\:\*\|":]/g, '').trim() || 'Cartella';
+    
+    const baseFolder = zip.folder(name);
+    addFolderToZip(baseFolder, folder.id);
+
+    zip.generateAsync({type:"blob"}).then(function(content) {
+        downloadBlob(content, name + '.zip');
+    });
+  }
+
+  contextDownload.addEventListener('click', function () {
+    const item = getItem(contextMenuItemId);
+    if (!item) return;
+
+    closeContextMenu();
+    history.back();
+
+    setTimeout(function () {
+      if (item.type === 'note') {
+        downloadNoteText(item);
+      } else if (item.type === 'folder') {
+        downloadFolderZip(item);
       }
     }, 200);
   });
