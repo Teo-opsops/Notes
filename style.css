@@ -615,7 +615,7 @@ body {
 }
 
 .editor-textarea {
-  flex: 1;
+  flex: 1 0 auto;
   width: 100%;
   padding: 0 20px 80px 20px;
   background: transparent;
@@ -623,10 +623,10 @@ body {
   outline: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 1rem;
+  font-size: 0.90rem;
   line-height: 1.6;
   resize: none;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 .list-fab {
@@ -1144,7 +1144,7 @@ input:checked + .slider:before {
   outline: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 0.90rem;
   line-height: 1.4;
   padding: 4px 0;
   min-width: 0;
@@ -1201,7 +1201,7 @@ input:checked + .slider:before {
   outline: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 0.90rem;
   padding: 4px 0;
 }
 .checklist-new-input::placeholder {

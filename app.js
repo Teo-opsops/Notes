@@ -607,6 +607,11 @@
     document.body.classList.add('editor-open');
     history.pushState({ view: 'editor', noteId: noteId }, '');
 
+    editorTextarea.style.height = 'auto';
+    editorTextarea.style.height = editorTextarea.scrollHeight + 'px';
+    const wrapper = document.querySelector('.editor-content-wrapper');
+    if (wrapper) wrapper.scrollTop = 0;
+
     if (isNew) {
       setTimeout(function () {
         editorTitleInput.focus();
@@ -658,6 +663,10 @@
       }
     }
     updateCharCount();
+    
+    // Auto-expand textarea height
+    editorTextarea.style.height = 'auto';
+    editorTextarea.style.height = editorTextarea.scrollHeight + 'px';
   });
 
   function updateCharCount() {
@@ -1386,6 +1395,14 @@
     editorView.classList.add('visible');
     document.body.classList.add('editor-open');
     history.pushState({ view: 'editor', noteId: noteId }, '');
+
+    // Adjust textarea height and scroll to top
+    if (!isListMode) {
+      editorTextarea.style.height = 'auto';
+      editorTextarea.style.height = editorTextarea.scrollHeight + 'px';
+    }
+    const wrapper = document.querySelector('.editor-content-wrapper');
+    if (wrapper) wrapper.scrollTop = 0;
 
     if (isNew) {
       setTimeout(function () {

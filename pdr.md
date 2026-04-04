@@ -9,7 +9,7 @@ L'app implementa la **persistenza automatica dello stato** tramite salvataggio o
 - **Stile**: Minimal ed elegante, estetica pulita e raffinata.
 - **Sfondo**: Nero puro (`#000000`) — ottimizzato per display AMOLED.
 - **Bordi**: Bianchi/grigi chiari (`rgba(255,255,255,0.12)`) per i box e gli elementi interattivi.
-- **Tipografia**: Font "Inter" da Google Fonts — pulito, moderno e leggibile.
+- **Tipografia**: Font "Inter" da Google Fonts — pulito, moderno e leggibile (dimensione testo dell'editor impostata a `0.90rem` per massimizzare visibilità e minimalismo).
 - **Palette colori**: Monocromatica in bianco e nero con accenti minimali (il colore di **ogni elemento originariamente bianco**, come icone, bottoni FAB, sfondi dei modali e titoli, viene modificato dinamicamente in base al tema scelto nelle impostazioni).
 - **Icone**: SVG line-art che ereditano il colore dell'accento del tema, stile minimal e coerente.
 - **Animazioni**: Transizioni fluide e sottili per navigazione, apertura note e interazioni.
@@ -29,8 +29,8 @@ L'app è basata su una **struttura gerarchica ad albero**:
   - **Nota (sotto)**: Pulsante con l'icona del file e un piccolo "+" in basso a destra. Al click apre direttamente l'editor a schermo intero. L'editor presenta un campo per il titolo in alto e un'area per il testo sotto. Se si crea una nuova nota, il cursore viene posizionato subito sul titolo (aprendo la tastiera). Se si apre una nota esistente, l'editor si apre senza attivare automaticamente la tastiera.
 
 ## 5. Editor di Nota (Schermo Intero)
-- **Stile Blocco Note**: L'editor occupa l'intero schermo del dispositivo. Ha un input dedicato per il titolo all'inizio e un'area di testo sotto. Nessun contorno o box visibile.
-- **Area di Scrittura**: Un'area verticale con sfondo nero e testo bianco, font Inter.
+- **Stile Blocco Note**: L'editor occupa l'intero schermo del dispositivo. Ha un input dedicato per il titolo all'inizio e un'area di testo sotto. Nessun contorno o box visibile. All'apertura di una nota, l'editor viene sempre posizionato in cima (scroll to top).
+- **Area di Scrittura**: Un'area verticale con sfondo nero e testo bianco, font Inter. L'area si auto-espande verticalmente all'inserimento del testo in modo da spingere gli eventuali allegati sotto tutto il contenuto testuale e consentire uno scroll naturale con la pagina madre.
 - **Autofocus**: Nelle nuove note, il titolo prende il focus all'apertura. Per le vecchie note, la tastiera resta chiusa all'apertura finché l'utente non tocca uno dei campi.
 - **Salvataggio Automatico**: Ogni modifica al testo o al titolo viene salvata in tempo reale.
 - **Barra Superiore Minima**: Contiene il pulsante freccia indietro (←) per tornare alla cartella corrente, un pulsante toggle per la modalità lista, e un pulsante graffetta (📎) per allegare file.
