@@ -314,6 +314,8 @@
         let startX = 0, startY = 0;
         let isPointerDown = false;
         let isSwiping = false;
+        let isScrolling = false;
+        let hasCapturedPointer = false;
         let currentX = 0, currentY = 0;
 
         card.addEventListener('pointerdown', function (e) {
@@ -321,9 +323,11 @@
           isPointerDown = true;
           isDragging = false;
           isSwiping = false;
+          isScrolling = false;
+          hasCapturedPointer = false;
           startX = e.clientX;
           startY = e.clientY;
-          card.setPointerCapture(e.pointerId);
+          // Do NOT capture pointer here — allow native vertical scrolling
 
           longPressTriggered = false;
           longPressTimer = setTimeout(function () {
@@ -334,19 +338,29 @@
         });
 
         card.addEventListener('pointermove', function (e) {
-          if (!isPointerDown) return;
+          if (!isPointerDown || isScrolling) return;
           const dx = e.clientX - startX;
           const dy = e.clientY - startY;
 
-          if (!isDragging && (Math.abs(dx) > 25 || Math.abs(dy) > 25)) {
-            isDragging = true;
+          // Determine gesture direction on first significant movement
+          if (!isDragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
             clearTimeout(longPressTimer);
-            if (Math.abs(dx) > Math.abs(dy)) {
-              isSwiping = true;
-            } else if (dy < -10) {
-              const dtz = document.getElementById('drag-trash-zone');
-              if (dtz) dtz.classList.add('visible');
+
+            if (Math.abs(dy) > Math.abs(dx)) {
+              // Vertical movement → user wants to scroll, abort our handling
+              isScrolling = true;
+              isPointerDown = false;
+              return;
             }
+
+            // Horizontal movement → it's a swipe, capture pointer now
+            isDragging = true;
+            isSwiping = true;
+            wrapper.classList.add('swiping');
+            try {
+              card.setPointerCapture(e.pointerId);
+              hasCapturedPointer = true;
+            } catch (err) {}
           }
 
           if (isSwiping) {
@@ -355,26 +369,19 @@
             const iconLeft = swipeBg.querySelector('.icon-left');
             const iconRight = swipeBg.querySelector('.icon-right');
             if (currentX > 0) {
-              iconLeft.style.opacity = Math.min(1, currentX / 50);
-              iconLeft.style.transform = 'scale(' + (currentX > 80 ? 1.2 : 1) + ')';
+              var progress = Math.min(1, currentX / 100);
+              var iconScale = 0.8 + progress * 0.5;
+              iconLeft.style.opacity = Math.min(1, currentX / 40);
+              iconLeft.style.transform = 'scale(' + iconScale + ')';
               iconRight.style.opacity = '0';
+              iconRight.style.transform = 'scale(0.8)';
             } else {
-              iconRight.style.opacity = Math.min(1, Math.abs(currentX) / 50);
-              iconRight.style.transform = 'scale(' + (currentX < -80 ? 1.2 : 1) + ')';
+              var progress = Math.min(1, Math.abs(currentX) / 100);
+              var iconScale = 0.8 + progress * 0.5;
+              iconRight.style.opacity = Math.min(1, Math.abs(currentX) / 40);
+              iconRight.style.transform = 'scale(' + iconScale + ')';
               iconLeft.style.opacity = '0';
-            }
-          } else if (isDragging && dy < -10) {
-            currentY = dy;
-            currentX = dx;
-            card.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) rotate(' + (dx*0.05) + 'deg)';
-            card.style.zIndex = '50';
-            const trashZone = document.getElementById('drag-trash-zone');
-            if (trashZone) {
-              if (e.clientY < 100) {
-                 trashZone.classList.add('drag-over');
-              } else {
-                 trashZone.classList.remove('drag-over');
-              }
+              iconLeft.style.transform = 'scale(0.8)';
             }
           }
         });
@@ -383,7 +390,11 @@
           if (!isPointerDown) return;
           isPointerDown = false;
           clearTimeout(longPressTimer);
-          card.releasePointerCapture(e.pointerId);
+
+          if (hasCapturedPointer) {
+            try { card.releasePointerCapture(e.pointerId); } catch (err) {}
+            hasCapturedPointer = false;
+          }
 
           const trashZone = document.getElementById('drag-trash-zone');
 
@@ -403,28 +414,17 @@
                 renderAll();
               }, 450);
             } else {
+              wrapper.classList.remove('swiping');
               card.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
               card.style.transform = '';
+              var il = swipeBg.querySelector('.icon-left');
+              var ir = swipeBg.querySelector('.icon-right');
+              if (il) { il.style.opacity = '0'; il.style.transform = 'scale(0.8)'; }
+              if (ir) { ir.style.opacity = '0'; ir.style.transform = 'scale(0.8)'; }
               setTimeout(function() { card.style.transition = ''; }, 300);
             }
-          } else if (isDragging && currentY < -10) {
-             if (trashZone) {
-               trashZone.classList.remove('visible');
-               trashZone.classList.remove('drag-over');
-             }
-             
-             if (e.clientY < 100) {
-                deleteRecursive(item.id, false);
-                saveData();
-                renderAll();
-             } else {
-                card.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-                card.style.transform = '';
-                card.style.zIndex = '1';
-                setTimeout(function() { card.style.transition = ''; card.style.zIndex = '1'; }, 300);
-             }
           } else if (!isDragging && !longPressTriggered) {
-             // Treat as normal tap/click
+             // Tap: open note/folder
              if (item.type === 'folder') {
                navigateToFolder(item.id);
              } else {
@@ -435,10 +435,18 @@
           currentY = 0;
           isSwiping = false;
           isDragging = false;
+          isScrolling = false;
+          wrapper.classList.remove('swiping');
         }
 
         card.addEventListener('pointerup', handleRelease);
         card.addEventListener('pointercancel', handleRelease);
+
+        // Clear entry animation after it completes so JS transforms work for swiping
+        card.addEventListener('animationend', function () {
+          card.style.animation = 'none';
+          card.style.opacity = '1';
+        }, { once: true });
 
         wrapper.appendChild(swipeBg);
         wrapper.appendChild(card);
@@ -469,19 +477,13 @@
   // ── Top Bar Back Button ──
   topBarBack.addEventListener('click', function () {
     if (currentFolderId !== null) {
-      const currentFolder = getItem(currentFolderId);
-      const parentId = currentFolder ? currentFolder.parentId : null;
-      navigateToFolder(parentId);
+      history.back();
     }
   });
 
   // ── Navigation ──
   function navigateToFolder(folderId) {
     currentFolderId = folderId;
-
-    // Transition animation
-    contentArea.classList.remove('entering');
-    contentArea.classList.add('transitioning');
 
     // Push history state
     if (folderId === null) {
@@ -490,11 +492,7 @@
       history.pushState({ view: 'folder', folderId: folderId }, '');
     }
 
-    setTimeout(function () {
-      renderAll();
-      contentArea.classList.remove('transitioning');
-      contentArea.classList.add('entering');
-    }, 80);
+    renderAll();
   }
 
 
@@ -736,53 +734,26 @@
   window.addEventListener('popstate', function (e) {
     const state = e.state;
 
-    // Close editor
+    // Close any open overlays
     if (editorView.classList.contains('visible')) {
       closeNoteEditor();
-      return;
     }
-
-    // Close context menu
-    if (contextOverlay.classList.contains('visible')) {
-      closeContextMenu();
-      return;
-    }
-
-    // Close modal
-    if (modalOverlay.classList.contains('visible')) {
-      hideModal();
-      return;
-    }
-
-
-
-    // Close settings
-    if (settingsOverlay.classList.contains('visible')) {
-      settingsOverlay.classList.remove('visible');
-      return;
-    }
-
-    // Close trash
     if (trashView.classList.contains('visible')) {
       trashView.classList.remove('visible');
-      return;
+    }
+    if (contextOverlay.classList.contains('visible')) {
+      closeContextMenu();
+    }
+    if (modalOverlay.classList.contains('visible')) {
+      hideModal();
+    }
+    if (settingsOverlay.classList.contains('visible')) {
+      settingsOverlay.classList.remove('visible');
     }
 
-    // Navigate back in folder hierarchy
+    // Navigate to the folder indicated by the state
     if (state && state.view === 'folder') {
       currentFolderId = state.folderId;
-      renderAll();
-      return;
-    }
-
-    // Default: go to parent folder
-    if (currentFolderId !== null) {
-      const currentFolder = getItem(currentFolderId);
-      if (currentFolder) {
-        currentFolderId = currentFolder.parentId;
-      } else {
-        currentFolderId = null;
-      }
       renderAll();
     }
   });
@@ -1372,8 +1343,13 @@
     }
   });
 
-  // ── Update openNoteEditor to handle list mode ──
+  // ── Update openNoteEditor to handle list mode + attachments ──
   var _originalOpenNoteEditor = openNoteEditor;
+
+  const editorAttachBtn = document.getElementById('editor-attach-btn');
+  const editorFileInput = document.getElementById('editor-file-input');
+  const attachmentsSection = document.getElementById('attachments-section');
+  const attachmentsList = document.getElementById('attachments-list');
 
   openNoteEditor = function (noteId, isNew) {
     var note = getItem(noteId);
@@ -1401,6 +1377,7 @@
     }
 
     updateCharCount();
+    renderAttachments(note);
     editorView.classList.add('visible');
     document.body.classList.add('editor-open');
     history.pushState({ view: 'editor', noteId: noteId }, '');
@@ -1412,7 +1389,7 @@
     }
   };
 
-  // ── Update closeNoteEditor to handle list mode ──
+  // ── Update closeNoteEditor to handle list mode + attachments ──
   var _originalCloseNoteEditor = closeNoteEditor;
 
   closeNoteEditor = function () {
@@ -1421,7 +1398,6 @@
       if (note) {
         note.name = editorTitleInput.value;
         if (isListMode) {
-          // Sync content from checklist for preview purposes
           if (note.checklist && note.checklist.length > 0) {
             note.content = note.checklist.map(function (i) { return i.text; }).join('\n');
           }
@@ -1441,11 +1417,485 @@
     editorTextarea.style.display = '';
     checklistContainer.style.display = 'none';
 
+    // Reset attachments
+    attachmentsSection.style.display = 'none';
+    attachmentsList.innerHTML = '';
+
     editorView.classList.remove('visible');
     document.body.classList.remove('editor-open');
     editorTitleInput.blur();
     editorTextarea.blur();
     renderItems();
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  File Attachments
+  // ══════════════════════════════════════════════════════════
+
+  editorAttachBtn.addEventListener('click', function () {
+    editorFileInput.click();
+  });
+
+  editorFileInput.addEventListener('change', function (e) {
+    var files = e.target.files;
+    if (!files || files.length === 0) return;
+    var note = getItem(currentEditingNoteId);
+    if (!note) return;
+    if (!note.attachments) note.attachments = [];
+
+    var filesProcessed = 0;
+    var totalFiles = files.length;
+
+    for (var i = 0; i < totalFiles; i++) {
+      (function (file) {
+        var reader = new FileReader();
+        reader.onload = function (ev) {
+          note.attachments.push({
+            id: generateId(),
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size,
+            data: ev.target.result,
+            addedAt: now()
+          });
+          filesProcessed++;
+          if (filesProcessed === totalFiles) {
+            note.updatedAt = now();
+            saveData();
+            renderAttachments(note);
+          }
+        };
+        reader.readAsDataURL(file);
+      })(files[i]);
+    }
+
+    // Reset input so the same file can be selected again
+    editorFileInput.value = '';
+  });
+
+  function renderAttachments(note) {
+    if (!note || !note.attachments || note.attachments.length === 0) {
+      attachmentsSection.style.display = 'none';
+      attachmentsList.innerHTML = '';
+      return;
+    }
+
+    attachmentsSection.style.display = '';
+    attachmentsList.innerHTML = '';
+
+    note.attachments.forEach(function (att) {
+      var item = document.createElement('div');
+      item.className = 'attachment-item';
+
+      var isImage = att.type && att.type.startsWith('image/');
+
+      if (isImage) {
+        // Image preview
+        var imgWrapper = document.createElement('div');
+        imgWrapper.className = 'attachment-image-wrapper';
+
+        var img = document.createElement('img');
+        img.className = 'attachment-image';
+        img.src = att.data;
+        img.alt = att.name;
+        img.loading = 'lazy';
+        imgWrapper.appendChild(img);
+
+        var imgName = document.createElement('div');
+        imgName.className = 'attachment-image-name';
+        imgName.textContent = att.name;
+
+        item.appendChild(imgWrapper);
+        item.appendChild(imgName);
+      } else {
+        // File block
+        var fileDiv = document.createElement('div');
+        fileDiv.className = 'attachment-file';
+
+        var iconDiv = document.createElement('div');
+        iconDiv.className = 'attachment-file-icon';
+        iconDiv.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
+        var infoDiv = document.createElement('div');
+        infoDiv.className = 'attachment-file-info';
+
+        var nameEl = document.createElement('div');
+        nameEl.className = 'attachment-file-name';
+        nameEl.textContent = att.name;
+
+        var extEl = document.createElement('div');
+        extEl.className = 'attachment-file-ext';
+        var ext = att.name.split('.').pop();
+        extEl.textContent = ext !== att.name ? '.' + ext + ' — ' + formatFileSize(att.size) : formatFileSize(att.size);
+
+        infoDiv.appendChild(nameEl);
+        infoDiv.appendChild(extEl);
+        fileDiv.appendChild(iconDiv);
+        fileDiv.appendChild(infoDiv);
+        item.appendChild(fileDiv);
+      }
+
+      // Delete button
+      var delBtn = document.createElement('button');
+      delBtn.className = 'attachment-delete';
+      delBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      delBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var idx = note.attachments.indexOf(att);
+        if (idx !== -1) {
+          note.attachments.splice(idx, 1);
+          note.updatedAt = now();
+          saveData();
+          renderAttachments(note);
+        }
+      });
+      item.appendChild(delBtn);
+
+      attachmentsList.appendChild(item);
+    });
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Google Auth & Drive Sync
+  // ══════════════════════════════════════════════════════════
+
+  // ⚠️ REPLACE THIS with your actual Google Cloud OAuth Client ID
+  var GOOGLE_CLIENT_ID = '662885517517-vub0f92dpv1765ckf02nn3ubpgqtpa25.apps.googleusercontent.com';
+  var DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  var DRIVE_FILE_NAME = 'notes_app_data.json';
+
+  // DOM refs
+  var googleSignedOut = document.getElementById('google-signed-out');
+  var googleSignedIn = document.getElementById('google-signed-in');
+  var googleSigninBtn = document.getElementById('google-signin-btn');
+  var googleSignoutBtn = document.getElementById('google-signout-btn');
+  var profileAvatar = document.getElementById('profile-avatar');
+  var profileName = document.getElementById('profile-name');
+  var profileEmail = document.getElementById('profile-email');
+  var syncNowBtn = document.getElementById('sync-now-btn');
+  var syncStatusEl = document.getElementById('sync-status');
+  var syncIndicator = document.getElementById('sync-status-btn');
+
+  var googleAccessToken = null;
+  var googleUser = null;
+  var driveFileId = null;
+  var isSyncing = false;
+  var tokenClient = null;
+
+  // ── Initialize Google Auth ──
+  function initGoogleAuth() {
+    // Check if GIS library is loaded
+    if (typeof google === 'undefined' || !google.accounts) {
+      // Retry after a short delay (script might still be loading)
+      setTimeout(initGoogleAuth, 500);
+      return;
+    }
+
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+      callback: handleTokenResponse
+    });
+
+    // Check if we have a saved session
+    var savedUser = localStorage.getItem('notesGoogleUser');
+    if (savedUser) {
+      try {
+        googleUser = JSON.parse(savedUser);
+        showSignedInUI();
+        // Token needs to be refreshed (tokens don't persist across sessions)
+        // but we show the UI as if signed in, and re-auth silently when needed
+      } catch (e) {
+        localStorage.removeItem('notesGoogleUser');
+      }
+    }
+  }
+
+  // ── Sign In ──
+  googleSigninBtn.addEventListener('click', function () {
+    if (GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com') {
+      alert('⚠️ Client ID non configurato.\n\nPer attivare il login Google, inserisci il tuo Client ID OAuth nella variabile GOOGLE_CLIENT_ID in app.js.');
+      return;
+    }
+    if (!tokenClient) {
+      alert('Le librerie Google non sono ancora caricate. Riprova tra un momento.');
+      return;
+    }
+    tokenClient.requestAccessToken();
+  });
+
+  // ── Handle Token Response ──
+  function handleTokenResponse(response) {
+    if (response.error) {
+      console.error('Google auth error:', response);
+      updateSyncStatus('Errore di autenticazione', 'error');
+      return;
+    }
+
+    googleAccessToken = response.access_token;
+
+    // Fetch user profile
+    fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { 'Authorization': 'Bearer ' + googleAccessToken }
+    })
+    .then(function (res) { return res.json(); })
+    .then(function (user) {
+      googleUser = {
+        name: user.name,
+        email: user.email,
+        picture: user.picture
+      };
+      localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
+      showSignedInUI();
+      // Auto-sync after sign in
+      syncWithDrive();
+    })
+    .catch(function (err) {
+      console.error('Failed to fetch user info:', err);
+    });
+  }
+
+  // ── Sign Out ──
+  googleSignoutBtn.addEventListener('click', function () {
+    if (googleAccessToken) {
+      google.accounts.oauth2.revoke(googleAccessToken, function () {
+        console.log('Token revoked');
+      });
+    }
+    googleAccessToken = null;
+    googleUser = null;
+    driveFileId = null;
+    localStorage.removeItem('notesGoogleUser');
+    showSignedOutUI();
+  });
+
+  // ── UI State ──
+  function showSignedInUI() {
+    googleSignedOut.style.display = 'none';
+    googleSignedIn.style.display = '';
+    if (googleUser) {
+      profileName.textContent = googleUser.name || '';
+      profileEmail.textContent = googleUser.email || '';
+      profileAvatar.src = googleUser.picture || '';
+      profileAvatar.style.display = googleUser.picture ? '' : 'none';
+    }
+    syncIndicator.style.display = '';
+  }
+
+  function showSignedOutUI() {
+    googleSignedOut.style.display = '';
+    googleSignedIn.style.display = 'none';
+    syncIndicator.style.display = 'none';
+    updateSyncStatus('Non sincronizzato', '');
+  }
+
+  function updateSyncStatus(text, state) {
+    syncStatusEl.textContent = text;
+    syncStatusEl.className = 'sync-status' + (state ? ' ' + state : '');
+    syncIndicator.className = 'top-bar-icon sync-indicator' + (state ? ' ' + state : '');
+  }
+
+  // ── Ensure we have a valid token ──
+  function ensureToken() {
+    return new Promise(function (resolve, reject) {
+      if (googleAccessToken) {
+        // Verify token is still valid
+        fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + googleAccessToken)
+        .then(function (res) {
+          if (res.ok) {
+            resolve(googleAccessToken);
+          } else {
+            // Token expired, request new one
+            googleAccessToken = null;
+            tokenClient.requestAccessToken({ prompt: '' });
+            // The callback will handle it, but we can't easily chain
+            reject(new Error('Token expired, re-authenticating...'));
+          }
+        })
+        .catch(function () { reject(new Error('Token validation failed')); });
+      } else {
+        reject(new Error('No token available'));
+      }
+    });
+  }
+
+  // ── Google Drive API Helpers ──
+  function driveFetch(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
+    return fetch(url, options);
+  }
+
+  // Find or create the sync file in appDataFolder
+  function findDriveFile() {
+    return driveFetch(
+      'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27' +
+      DRIVE_FILE_NAME + '%27&fields=files(id,modifiedTime)'
+    )
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (data.files && data.files.length > 0) {
+        driveFileId = data.files[0].id;
+        return { id: driveFileId, modifiedTime: data.files[0].modifiedTime };
+      }
+      return null;
+    });
+  }
+
+  // Read file content from Drive
+  function readDriveFile(fileId) {
+    return driveFetch(
+      'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media'
+    )
+    .then(function (res) { return res.json(); });
+  }
+
+  // Create or update file on Drive
+  function writeDriveFile(data) {
+    var jsonStr = JSON.stringify(data);
+    var boundary = '---notesapp' + Date.now();
+
+    var metadata = {
+      name: DRIVE_FILE_NAME,
+      mimeType: 'application/json'
+    };
+
+    if (!driveFileId) {
+      metadata.parents = ['appDataFolder'];
+    }
+
+    var body =
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json\r\n\r\n' +
+      jsonStr + '\r\n' +
+      '--' + boundary + '--';
+
+    var url = driveFileId
+      ? 'https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=multipart'
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+
+    return driveFetch(url, {
+      method: driveFileId ? 'PATCH' : 'POST',
+      headers: {
+        'Content-Type': 'multipart/related; boundary=' + boundary
+      },
+      body: body
+    })
+    .then(function (res) { return res.json(); })
+    .then(function (file) {
+      driveFileId = file.id;
+      return file;
+    });
+  }
+
+  // ── Main Sync Logic ──
+  function syncWithDrive() {
+    if (isSyncing) return;
+    if (!googleUser) return;
+
+    isSyncing = true;
+    updateSyncStatus('Sincronizzazione...', 'syncing');
+
+    ensureToken()
+    .then(function () {
+      return findDriveFile();
+    })
+    .then(function (fileInfo) {
+      if (fileInfo) {
+        // File exists on Drive — read it
+        return readDriveFile(fileInfo.id).then(function (driveData) {
+          // Merge: Drive data wins for items not modified locally since last sync
+          var lastSync = localStorage.getItem('notesLastSync');
+          var localData = { items: items };
+
+          if (driveData && driveData.items) {
+            // Simple strategy: use whichever has more recent updatedAt for each item
+            var mergedMap = {};
+
+            // Add all drive items
+            driveData.items.forEach(function (item) {
+              mergedMap[item.id] = item;
+            });
+
+            // Override with local items that are newer
+            items.forEach(function (item) {
+              var driveItem = mergedMap[item.id];
+              if (!driveItem || new Date(item.updatedAt) > new Date(driveItem.updatedAt)) {
+                mergedMap[item.id] = item;
+              }
+            });
+
+            items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
+            saveData();
+            renderAll();
+          }
+
+          // Upload merged data back to Drive
+          return writeDriveFile({ items: items });
+        });
+      } else {
+        // No file on Drive yet — upload local data
+        return writeDriveFile({ items: items });
+      }
+    })
+    .then(function () {
+      localStorage.setItem('notesLastSync', now());
+      updateSyncStatus('Ultima sync: adesso', 'success');
+      setTimeout(function () {
+        if (!isSyncing) updateSyncStatus('Sincronizzato ✓', '');
+      }, 3000);
+    })
+    .catch(function (err) {
+      console.error('Sync error:', err);
+      updateSyncStatus('Errore di sync', 'error');
+    })
+    .finally(function () {
+      isSyncing = false;
+    });
+  }
+
+  // Sync Now button
+  syncNowBtn.addEventListener('click', function () {
+    if (!googleAccessToken && googleUser) {
+      // Need to re-authenticate
+      tokenClient.requestAccessToken({ prompt: '' });
+      return;
+    }
+    syncWithDrive();
+  });
+
+  // Sync indicator click
+  syncIndicator.addEventListener('click', function () {
+    if (!googleAccessToken && googleUser) {
+      tokenClient.requestAccessToken({ prompt: '' });
+      return;
+    }
+    syncWithDrive();
+  });
+
+  // Auto-sync after data changes (debounced)
+  var autoSyncTimer = null;
+  var _originalSaveData = saveData;
+  saveData = function () {
+    _originalSaveData();
+    // Trigger auto-sync if connected
+    if (googleUser && googleAccessToken) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = setTimeout(function () {
+        syncWithDrive();
+      }, 5000); // Sync 5 seconds after last change
+    }
   };
 
   // ── Init ──
@@ -1457,6 +1907,9 @@
     history.replaceState({ view: 'folder', folderId: null }, '');
 
     renderAll();
+
+    // Initialize Google Auth (with delay for script loading)
+    setTimeout(initGoogleAuth, 300);
   }
 
   // ── Register Service Worker ──

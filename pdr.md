@@ -10,8 +10,8 @@ L'app implementa la **persistenza automatica dello stato** tramite salvataggio o
 - **Sfondo**: Nero puro (`#000000`) — ottimizzato per display AMOLED.
 - **Bordi**: Bianchi/grigi chiari (`rgba(255,255,255,0.12)`) per i box e gli elementi interattivi.
 - **Tipografia**: Font "Inter" da Google Fonts — pulito, moderno e leggibile.
-- **Palette colori**: Monocromatica in bianco e nero con accenti minimali bianchi.
-- **Icone**: SVG line-art con stroke bianco, stile minimal e coerente.
+- **Palette colori**: Monocromatica in bianco e nero con accenti minimali (il colore di **ogni elemento originariamente bianco**, come icone, bottoni FAB, sfondi dei modali e titoli, viene modificato dinamicamente in base al tema scelto nelle impostazioni).
+- **Icone**: SVG line-art che ereditano il colore dell'accento del tema, stile minimal e coerente.
 - **Animazioni**: Transizioni fluide e sottili per navigazione, apertura note e interazioni.
 
 ## 3. Struttura e Navigazione
@@ -21,6 +21,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
 2. **Cartelle**: Ogni cartella può contenere sottocartelle e/o note, senza limiti di profondità.
 3. **Note**: Elementi di testo semplice, apribili in modalità di scrittura a schermo intero.
 4. **Navigazione Breadcrumb**: In alto viene mostrato il percorso corrente (Home > Cartella > Sottocartella) per orientarsi nella gerarchia. Ogni segmento è cliccabile per tornare rapidamente a quel livello.
+5. **Navigazione ad Albero con History API**: Ogni azione di navigazione (apertura cartella, nota, impostazioni, ecc.) inserisce uno stato nella cronologia del browser (`history.pushState`). Il pulsante indietro (sia in-app che fisico Android) fa `history.back()`, che torna esattamente di un livello alla volta lungo il percorso esatto seguito dall'utente, fino alla homepage. Solo dalla homepage il tasto indietro chiude l'app.
 
 ## 4. Creazione di Elementi
 - **Pulsanti "+"**: In basso a destra sono presenti due pulsanti flottanti (FAB) impilati verticalmente:
@@ -32,7 +33,14 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Area di Scrittura**: Un'area verticale con sfondo nero e testo bianco, font Inter.
 - **Autofocus**: Nelle nuove note, il titolo prende il focus all'apertura. Per le vecchie note, la tastiera resta chiusa all'apertura finché l'utente non tocca uno dei campi.
 - **Salvataggio Automatico**: Ogni modifica al testo o al titolo viene salvata in tempo reale.
-- **Barra Superiore Minima**: Contiene il pulsante freccia indietro (←) per tornare alla cartella corrente, e sulla destra un pulsante toggle per la modalità lista.
+- **Barra Superiore Minima**: Contiene il pulsante freccia indietro (←) per tornare alla cartella corrente, un pulsante toggle per la modalità lista, e un pulsante graffetta (📎) per allegare file.
+- **Allegati File**:
+  - Premendo l'icona graffetta in alto a destra si apre il file picker del dispositivo (supporto file multipli).
+  - I file vengono salvati come base64 nell'array `note.attachments` in localStorage.
+  - In fondo alla nota (scrollando dopo il testo), compare una sezione "File caricati" con bordo superiore separatore.
+  - Le **immagini** vengono mostrate come anteprima visiva (max 300px di altezza, object-fit contain) con il nome del file sotto.
+  - Gli **altri file** vengono mostrati come blocchetti con icona documento, nome del file e estensione/dimensione.
+  - Ogni allegato ha un pulsante ✕ per eliminarlo singolarmente.
 - **Conteggio Caratteri**: In basso a destra, un piccolissimo conteggio discreto dei caratteri totali.
 - **Formattazione**: Testo puro (plain text), senza formattazione ricca, per mantenere la semplicità.
 - **Modalità Lista/Checklist**:
@@ -49,8 +57,19 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Note**: Mostrate con un'icona documento SVG minimal, titolo a destra, con un'anteprima del testo sotto in grigio e data dell'ultima modifica.
 
 ## 7. Azioni sugli Elementi e Meccaniche Cestino
+- **Gestione Touch Intelligente**: Il sistema distingue tre gesti: tocco e rilascio (tap) = apre l'elemento; movimento verticale = scroll nativo della lista; movimento orizzontale = swipe per eliminare. La cattura del pointer avviene solo quando viene confermato uno swipe orizzontale, permettendo lo scroll fluido della lista anche toccando sopra le card.
 - **Tap su Cartella**: Naviga dentro la cartella.
 - **Tap su Nota**: Apre l'editor a schermo intero.
-- **Swipe Laterale Orizzontale**: Scorrendo su un elemento (cartella o nota) a destra o sinistra vengono rivelate le icone minimali del cestino. Oltrepassata la soglia, l'elemento va nel cestino.
-- **Trascinamento in Alto**: Cliccando e trascinando verso l'alto (pan-y) un elemento, scende una zona drop di colore bianco con un cestino in alto ("Rilascia per eliminare"). Rilasciando all'interno, va nel cestino.
+- **Swipe Laterale Orizzontale**: Scorrendo su un elemento (cartella o nota) a destra o sinistra, la card si sposta rivelando lo sfondo scuro dell'app con l'icona del cestino nel colore del tema. Lo sfondo dello swipe è trasparente per permettere di vedere chiaramente la card che scorre. L'icona si ingrandisce fluidamente in base allo scorrimento (scaling progressivo da 0.8 a 1.3). Oltrepassata la soglia di 80px, l'elemento viene eliminato con un'animazione fluida di contrazione.
 - **Cestino e Impostazioni**: L'accesso al cestino avviene tramite l'icona ingranaggio (Impostazioni) in alto a destra. All'interno delle impostazioni è presente la sezione "Cestino" dove è possibile ripristinare o eliminare definitivamente gli elementi.
+
+## 8. Profilo Google & Sincronizzazione Drive
+- **Sezione Profilo nelle Impostazioni**: Prima card nelle impostazioni, mostra "Profilo & Sync" con:
+  - Stato disconnesso: pulsante "Connetti Account Google" con logo Google ufficiale a colori.
+  - Stato connesso: avatar utente, nome, email, pulsante "Sincronizza ora", stato della sync, e pulsante "Disconnetti Account".
+- **Autenticazione**: Utilizza Google Identity Services (GIS) con OAuth 2.0 Token Model. Scope richiesti: `drive.appdata`, `userinfo.profile`, `userinfo.email`.
+- **Storage su Drive**: I dati vengono salvati come file JSON (`notes_app_data.json`) nella cartella `appDataFolder` di Google Drive (nascosta all'utente, riservata all'app).
+- **Strategia di Merge**: Per ogni elemento, viene confrontato `updatedAt`: vince il più recente tra locale e cloud. Il risultato viene riscritto su Drive dopo il merge.
+- **Auto-sync**: Ogni modifica ai dati avvia un timer di 5 secondi; se non ci sono ulteriori modifiche, la sync parte automaticamente.
+- **Indicatore Sync**: Icona di sincronizzazione nella top bar principale (visibile solo se connessi), cliccabile per forzare una sync manuale. L'icona ruota durante la sync attiva.
+- **Configurazione**: Utilizza il `GOOGLE_CLIENT_ID` specifico del progetto su Google Cloud Console (configurato in `app.js`). L'app non verificata supporta fino a 100 utenti test configurati nella console.
