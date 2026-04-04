@@ -70,6 +70,6 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Autenticazione**: Utilizza Google Identity Services (GIS) con OAuth 2.0 Token Model. Scope richiesti: `drive.appdata`, `userinfo.profile`, `userinfo.email`.
 - **Storage su Drive**: I dati vengono salvati come file JSON (`notes_app_data.json`) nella cartella `appDataFolder` di Google Drive (nascosta all'utente, riservata all'app).
 - **Strategia di Merge**: Per ogni elemento, viene confrontato `updatedAt`: vince il più recente tra locale e cloud. Il risultato viene riscritto su Drive dopo il merge.
-- **Auto-sync**: Ogni modifica ai dati avvia un timer di 5 secondi; se non ci sono ulteriori modifiche, la sync parte automaticamente.
-- **Indicatore Sync**: Icona di sincronizzazione nella top bar principale (visibile solo se connessi), cliccabile per forzare una sync manuale. L'icona ruota durante la sync attiva.
+- **Auto-sync Silenziosa**: Ogni modifica ai dati avvia un timer di 15 secondi; se non ci sono ulteriori modifiche, la sync parte automaticamente in modo completamente invisibile all'utente (nessun indicatore visivo). La sync avviene anche automaticamente quando l'utente chiude l'app o passa a un'altra scheda/app (`visibilitychange` + `beforeunload`).
+- **Sync Manuale**: Disponibile solo nelle impostazioni tramite il pulsante "Sincronizza ora", con feedback visivo sullo stato.
 - **Configurazione**: Utilizza il `GOOGLE_CLIENT_ID` specifico del progetto su Google Cloud Console (configurato in `app.js`). L'app non verificata supporta fino a 100 utenti test configurati nella console.

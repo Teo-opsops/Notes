@@ -1686,7 +1686,6 @@
       profileAvatar.src = googleUser.picture || '';
       profileAvatar.style.display = googleUser.picture ? '' : 'none';
     }
-    syncIndicator.style.display = '';
   }
 
   function showSignedOutUI() {
@@ -1699,7 +1698,6 @@
   function updateSyncStatus(text, state) {
     syncStatusEl.textContent = text;
     syncStatusEl.className = 'sync-status' + (state ? ' ' + state : '');
-    syncIndicator.className = 'top-bar-icon sync-indicator' + (state ? ' ' + state : '');
   }
 
   // ── Ensure we have a valid token ──
@@ -1800,12 +1798,12 @@
   }
 
   // ── Main Sync Logic ──
-  function syncWithDrive() {
+  function syncWithDrive(silent) {
     if (isSyncing) return;
     if (!googleUser) return;
 
     isSyncing = true;
-    updateSyncStatus('Sincronizzazione...', 'syncing');
+    if (!silent) updateSyncStatus('Sincronizzazione...', 'syncing');
 
     ensureToken()
     .then(function () {
@@ -1851,52 +1849,59 @@
     })
     .then(function () {
       localStorage.setItem('notesLastSync', now());
-      updateSyncStatus('Ultima sync: adesso', 'success');
-      setTimeout(function () {
-        if (!isSyncing) updateSyncStatus('Sincronizzato ✓', '');
-      }, 3000);
+      hasPendingChanges = false;
+      if (!silent) {
+        updateSyncStatus('Ultima sync: adesso', 'success');
+        setTimeout(function () {
+          if (!isSyncing) updateSyncStatus('Sincronizzato ✓', '');
+        }, 3000);
+      }
     })
     .catch(function (err) {
       console.error('Sync error:', err);
-      updateSyncStatus('Errore di sync', 'error');
+      if (!silent) updateSyncStatus('Errore di sync', 'error');
     })
     .finally(function () {
       isSyncing = false;
     });
   }
 
-  // Sync Now button
+  // Sync Now button (manual = visible feedback)
   syncNowBtn.addEventListener('click', function () {
     if (!googleAccessToken && googleUser) {
-      // Need to re-authenticate
       tokenClient.requestAccessToken({ prompt: '' });
       return;
     }
-    syncWithDrive();
+    syncWithDrive(false);
   });
 
-  // Sync indicator click
-  syncIndicator.addEventListener('click', function () {
-    if (!googleAccessToken && googleUser) {
-      tokenClient.requestAccessToken({ prompt: '' });
-      return;
-    }
-    syncWithDrive();
-  });
-
-  // Auto-sync after data changes (debounced)
+  // Auto-sync after data changes (debounced, silent)
   var autoSyncTimer = null;
+  var hasPendingChanges = false;
   var _originalSaveData = saveData;
   saveData = function () {
     _originalSaveData();
-    // Trigger auto-sync if connected
+    hasPendingChanges = true;
+    // Trigger silent auto-sync if connected
     if (googleUser && googleAccessToken) {
       clearTimeout(autoSyncTimer);
       autoSyncTimer = setTimeout(function () {
-        syncWithDrive();
-      }, 5000); // Sync 5 seconds after last change
+        syncWithDrive(true);
+      }, 15000); // Sync 15 seconds after last change
     }
   };
+
+  // Sync when app is closed/hidden — ONLY if there are pending changes
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser && googleAccessToken) {
+      syncWithDrive(true);
+    }
+  });
+  window.addEventListener('beforeunload', function () {
+    if (hasPendingChanges && googleUser && googleAccessToken) {
+      syncWithDrive(true);
+    }
+  });
 
   // ── Init ──
   function init() {
