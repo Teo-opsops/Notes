@@ -69,7 +69,11 @@ L'app è basata su una **struttura gerarchica ad albero**:
   - Stato connesso: avatar utente, nome, email, pulsante "Sincronizza ora", stato della sync, e pulsante "Disconnetti Account".
 - **Autenticazione**: Utilizza Google Identity Services (GIS) con OAuth 2.0 Token Model. Scope richiesti: `drive.appdata`, `userinfo.profile`, `userinfo.email`.
 - **Storage su Drive**: I dati vengono salvati come file JSON (`notes_app_data.json`) nella cartella `appDataFolder` di Google Drive (nascosta all'utente, riservata all'app).
-- **Strategia di Merge**: Per ogni elemento, viene confrontato `updatedAt`: vince il più recente tra locale e cloud. Il risultato viene riscritto su Drive dopo il merge.
+- **Rilevamento Conflitti alla Connessione**: Quando l'utente collega l'account Google, l'app verifica subito la situazione:
+  - **Locale vuoto + Cloud con dati** → scarica automaticamente i dati dal cloud.
+  - **Locale con dati + Cloud vuoto** → carica automaticamente i dati locali sul cloud.
+  - **Entrambi con dati** → mostra un dialogo di conflitto con il conteggio degli elementi su ciascun lato, chiedendo all'utente se vuole "Scarica dati dal cloud" (sovrascrive locale) o "Carica dati locali sul cloud" (sovrascrive Drive).
+- **Strategia di Merge (sync successive)**: Per le sincronizzazioni automatiche successive alla prima, viene confrontato `updatedAt` per ogni elemento: vince il più recente tra locale e cloud.
 - **Auto-sync Silenziosa**: Ogni modifica ai dati avvia un timer di 15 secondi; se non ci sono ulteriori modifiche, la sync parte automaticamente in modo completamente invisibile all'utente (nessun indicatore visivo). La sync avviene anche automaticamente quando l'utente chiude l'app o passa a un'altra scheda/app (`visibilitychange` + `beforeunload`).
 - **Sync Manuale**: Disponibile solo nelle impostazioni tramite il pulsante "Sincronizza ora", con feedback visivo sullo stato.
 - **Configurazione**: Utilizza il `GOOGLE_CLIENT_ID` specifico del progetto su Google Cloud Console (configurato in `app.js`). L'app non verificata supporta fino a 100 utenti test configurati nella console.

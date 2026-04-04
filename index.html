@@ -110,6 +110,32 @@
       </div>
     </div>
 
+    <!-- ── Sync Conflict Dialog ── -->
+    <div id="sync-conflict-overlay" class="modal-overlay">
+      <div class="modal-box sync-conflict-box">
+        <div class="modal-title">Dati trovati sul cloud</div>
+        <p class="sync-conflict-text">Sul tuo Google Drive sono già presenti dei dati salvati. Come vuoi procedere?</p>
+        <div class="sync-conflict-info">
+          <div class="sync-info-row">
+            <span class="sync-info-label">📱 Dati locali</span>
+            <span id="sync-local-count" class="sync-info-value">0 elementi</span>
+          </div>
+          <div class="sync-info-row">
+            <span class="sync-info-label">☁️ Dati cloud</span>
+            <span id="sync-cloud-count" class="sync-info-value">0 elementi</span>
+          </div>
+        </div>
+        <button id="sync-use-cloud" class="settings-btn sync-choice-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M20 21H4"/></svg>
+          Scarica dati dal cloud
+        </button>
+        <button id="sync-use-local" class="settings-btn sync-choice-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 14 12 9 7 14"/><line x1="12" y1="9" x2="12" y2="21"/><path d="M20 3H4"/></svg>
+          Carica dati locali sul cloud
+        </button>
+      </div>
+    </div>
+
     <!-- ── Note Editor (Full Screen) ── -->
     <div id="editor-view" class="editor-view">
       <div class="editor-top-bar">

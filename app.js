@@ -1654,8 +1654,8 @@
       };
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
-      // Auto-sync after sign in
-      syncWithDrive();
+      // Check for conflicts before syncing
+      firstSyncCheck();
     })
     .catch(function (err) {
       console.error('Failed to fetch user info:', err);
@@ -1796,6 +1796,105 @@
       return file;
     });
   }
+
+  // ── First Sync Check (conflict detection) ──
+  var syncConflictOverlay = document.getElementById('sync-conflict-overlay');
+  var syncUseCloud = document.getElementById('sync-use-cloud');
+  var syncUseLocal = document.getElementById('sync-use-local');
+  var syncLocalCount = document.getElementById('sync-local-count');
+  var syncCloudCount = document.getElementById('sync-cloud-count');
+  var pendingDriveData = null;
+
+  function firstSyncCheck() {
+    ensureToken()
+    .then(function () {
+      return findDriveFile();
+    })
+    .then(function (fileInfo) {
+      if (!fileInfo) {
+        // No data on Drive → upload local data silently
+        if (items.length > 0) {
+          return writeDriveFile({ items: items }).then(function () {
+            localStorage.setItem('notesLastSync', now());
+          });
+        }
+        return;
+      }
+
+      // Drive has data → read it
+      return readDriveFile(fileInfo.id).then(function (driveData) {
+        var localCount = items.filter(function (i) { return !i.deleted; }).length;
+        var cloudItems = driveData && driveData.items ? driveData.items : [];
+        var cloudCount = cloudItems.filter(function (i) { return !i.deleted; }).length;
+
+        if (localCount === 0 && cloudCount > 0) {
+          // Local is empty, cloud has data → auto-download
+          items = cloudItems;
+          saveData();
+          renderAll();
+          localStorage.setItem('notesLastSync', now());
+          return;
+        }
+
+        if (localCount > 0 && cloudCount === 0) {
+          // Cloud is empty, local has data → auto-upload
+          return writeDriveFile({ items: items }).then(function () {
+            localStorage.setItem('notesLastSync', now());
+          });
+        }
+
+        if (localCount > 0 && cloudCount > 0) {
+          // Both have data → compare content deeply
+          var sortById = function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; };
+          var localSorted = items.slice().sort(sortById);
+          var cloudSorted = cloudItems.slice().sort(sortById);
+          var localJSON = JSON.stringify(localSorted);
+          var cloudJSON = JSON.stringify(cloudSorted);
+
+          if (localJSON === cloudJSON) {
+            // Identical data → no conflict, mark as synced
+            localStorage.setItem('notesLastSync', now());
+            return;
+          }
+
+          // Data differs → show conflict dialog
+          pendingDriveData = driveData;
+          syncLocalCount.textContent = localCount + ' element' + (localCount === 1 ? 'o' : 'i');
+          syncCloudCount.textContent = cloudCount + ' element' + (cloudCount === 1 ? 'o' : 'i');
+          syncConflictOverlay.classList.add('visible');
+          return;
+        }
+
+        // Both empty → do nothing
+      });
+    })
+    .catch(function (err) {
+      console.error('First sync check error:', err);
+    });
+  }
+
+  // ── Conflict Dialog Handlers ──
+  syncUseCloud.addEventListener('click', function () {
+    if (pendingDriveData && pendingDriveData.items) {
+      items = pendingDriveData.items;
+      saveData();
+      renderAll();
+      localStorage.setItem('notesLastSync', now());
+    }
+    pendingDriveData = null;
+    syncConflictOverlay.classList.remove('visible');
+  });
+
+  syncUseLocal.addEventListener('click', function () {
+    syncConflictOverlay.classList.remove('visible');
+    pendingDriveData = null;
+    // Upload local data to Drive, overwriting cloud
+    writeDriveFile({ items: items }).then(function () {
+      localStorage.setItem('notesLastSync', now());
+    }).catch(function (err) {
+      console.error('Upload error:', err);
+    });
+  });
 
   // ── Main Sync Logic ──
   function syncWithDrive(silent) {

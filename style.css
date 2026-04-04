@@ -995,6 +995,47 @@ input:checked + .slider:before {
   to { transform: rotate(360deg); }
 }
 
+/* ── Sync Conflict Dialog ── */
+.sync-conflict-box {
+  max-width: 340px;
+}
+.sync-conflict-text {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+.sync-conflict-info {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.sync-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+.sync-info-row + .sync-info-row {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+.sync-info-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.sync-info-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.sync-choice-btn {
+  margin-top: 6px;
+}
+
 /* ══════════════════════════════════════════════════════════
    Checklist/List Mode
    ══════════════════════════════════════════════════════════ */
