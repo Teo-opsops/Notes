@@ -141,6 +141,7 @@
       if (item) {
         item.deleted = true;
         item.deletedAt = now();
+        item.updatedAt = now();
       }
     }
   }
@@ -2295,8 +2296,24 @@
 
   // ── Register Service Worker ──
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function (e) {
+    navigator.serviceWorker.register('sw.js').then(function (registration) {
+      // Check for updates on every page load
+      registration.update();
+      
+      // Look for updates every 10 minutes (600000ms)
+      setInterval(function() {
+        registration.update();
+      }, 600000);
+    }).catch(function (e) {
       console.warn('SW registration failed:', e);
+    });
+
+    // When the service worker is updated and takes control, reload the page
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
     });
   }
 

@@ -1,13 +1,16 @@
-var CACHE_NAME = 'notes-cache-v1';
+var CACHE_NAME = 'notes-cache-v3'; // Incrementing version to force update
 var urlsToCache = [
+  './',
   './index.html',
   './manifest.json',
-  './css/style.css',
-  './js/app.js',
+  './style.css',
+  './app.js',
   './icon.png'
 ];
 
+// Install event: cache initial assets
 self.addEventListener('install', function(event) {
+  self.skipWaiting(); // Force the waiting service worker to become the active service worker
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(function(cache) {
@@ -16,15 +19,28 @@ self.addEventListener('install', function(event) {
   );
 });
 
+// Activate event: cleanup old caches
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(cacheNames) {
+      return Promise.all(
+        cacheNames.map(function(cacheName) {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(function() {
+        return self.clients.claim(); // Take control of all open clients immediately
+    })
+  );
+});
+
+// Fetch event: Network-First strategy for better update experience
 self.addEventListener('fetch', function(event) {
   event.respondWith(
-    caches.match(event.request)
-      .then(function(response) {
-        if (response) {
-          return response;
-        }
-        return fetch(event.request);
-      }
-    )
+    fetch(event.request).catch(function() {
+      return caches.match(event.request);
+    })
   );
 });
