@@ -946,15 +946,18 @@
     reader.readAsText(file);
   });
 
-  document.getElementById('reset-btn').addEventListener('click', function() {
-    if (confirm('Sei sicuro di voler cancellare tutti i dati? Questa azione è irreversibile.')) {
-      items = [];
-      saveData();
-      renderAll();
-      settingsOverlay.classList.remove('visible');
-      history.back();
-    }
-  });
+  var resetBtn = document.getElementById('reset-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      if (confirm('Sei sicuro di voler cancellare tutti i dati? Questa azione è irreversibile.')) {
+        items = [];
+        saveData();
+        renderAll();
+        settingsOverlay.classList.remove('visible');
+        history.back();
+      }
+    });
+  }
 
   // ── Trash View ──
   const trashView = document.getElementById('trash-view');

@@ -13,6 +13,7 @@ L'app implementa la **persistenza automatica dello stato** tramite salvataggio o
 - **Palette colori**: Monocromatica in bianco e nero con accenti minimali (il colore di **ogni elemento originariamente bianco**, come icone, bottoni FAB, sfondi dei modali e titoli, viene modificato dinamicamente in base al tema scelto nelle impostazioni).
 - **Icone**: SVG line-art che ereditano il colore dell'accento del tema, stile minimal e coerente.
 - **Animazioni**: Transizioni fluide e sottili per navigazione, apertura note e interazioni.
+- **Toggle Switch**: Il pulsante di commutazione (es. AMOLED) utilizza una pallina bianca semitrasparente (`rgba(255,255,255,0.7)`) nello stato spento e una pallina del colore dello sfondo elevato (`--bg-elevated`) nello stato acceso, garantendo contrasto visivo con qualsiasi colore accento, incluso il bianco.
 
 ## 3. Struttura e Navigazione
 L'app è basata su una **struttura gerarchica ad albero**:
@@ -68,6 +69,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Swipe Laterale Orizzontale**: Scorrendo su un elemento (cartella o nota) a destra o sinistra, la card si sposta rivelando lo sfondo scuro dell'app con l'icona del cestino nel colore del tema. Lo sfondo dello swipe è trasparente per permettere di vedere chiaramente la card che scorre. L'icona si ingrandisce fluidamente in base allo scorrimento (scaling progressivo da 0.8 a 1.3). Oltrepassata la soglia di 80px, l'elemento viene eliminato con un'animazione fluida di contrazione.
 - **Cestino e Impostazioni**: L'accesso al cestino avviene tramite l'icona ingranaggio (Impostazioni) in alto a destra. All'interno delle impostazioni è presente la sezione "Cestino" dove è possibile ripristinare o eliminare definitivamente gli elementi.
 - **Dati Backup**: La card "Dati Backup" nelle impostazioni contiene esclusivamente due pulsanti: **Esporta** (con icona download ↓) per esportare tutti i dati in formato `.json`, e **Importa** (con icona upload ↑) per importare un file `.json` precedentemente esportato. Nessun'altra scritta o azione è presente nella card.
+- **Robustezza DOM**: Tutti i riferimenti a elementi opzionali dell'interfaccia (come pulsanti che potrebbero non essere presenti nel DOM) vengono verificati con un null-check prima di aggiungere event listener, per evitare che un elemento mancante causi un crash dello script che blocchi l'esecuzione di tutto il codice successivo (inclusa l'autenticazione Google).
 
 ## 8. Profilo Google & Sincronizzazione Drive
 - **Sezione Profilo nelle Impostazioni**: Prima card nelle impostazioni, mostra "Profilo & Sync" con:
