@@ -3,7 +3,7 @@
 ## 1. Introduzione
 Questo documento funge da linea guida per la progettazione e lo sviluppo dell'app **Notes**, un'applicazione web HTML per creare e organizzare note in una struttura gerarchica di cartelle. Questo file verrà aggiornato iterativamente ad ogni nuova richiesta per mantenere traccia delle funzionalità e delle specifiche dell'app.
 
-L'app implementa la **persistenza automatica dello stato** tramite salvataggio offline locale (`localStorage`), che salva e ricarica le note e le cartelle in tempo reale ogni volta che chiudi e riapri l'applicazione.
+L'app implementa la **persistenza automatica dello stato** tramite salvataggio offline locale su **IndexedDB** (`NotesAppLocalDB`), un database locale del browser completamente separato dalla cache del browser e dai dati di Google. Questo garantisce che le note e le cartelle persistano in modo affidabile anche quando l'utente cancella la cache del browser o i dati di navigazione. Il `localStorage` viene utilizzato esclusivamente per le impostazioni leggere dell'app (tema, token OAuth, profilo utente), non per i dati delle note. Al primo avvio dopo l'aggiornamento, l'app migra automaticamente eventuali dati presenti nel vecchio `localStorage` verso IndexedDB, rimuovendoli poi dal `localStorage` per completare la transizione.
 
 ## 2. Stile Visivo
 - **Stile**: Minimal ed elegante, estetica pulita e raffinata.
@@ -37,7 +37,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Barra Superiore Minima**: Contiene il pulsante freccia indietro (←) per tornare alla cartella corrente, un pulsante toggle per la modalità lista, e un pulsante graffetta (📎) per allegare file.
 - **Allegati File**:
   - Premendo l'icona graffetta in alto a destra si apre il file picker del dispositivo (supporto file multipli).
-  - I file vengono salvati come base64 nell'array `note.attachments` in localStorage.
+  - I file vengono salvati come base64 nell'array `note.attachments` in IndexedDB.
   - In fondo alla nota (scrollando dopo il testo), compare una sezione "File caricati" con bordo superiore separatore.
   - Le **immagini** vengono mostrate come anteprima visiva (max 300px di altezza, object-fit contain) con il nome del file sotto.
   - Gli **altri file** vengono mostrati come blocchetti con icona documento, nome del file e estensione/dimensione.
@@ -85,3 +85,10 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Auto-sync Silenziosa (Token Persistence + Invisible Refresh)**: All'avvio dell'app, il token di accesso OAuth viene cercato prima in `localStorage` (dove è persistito insieme al suo timestamp di scadenza). Se il token è ancora valido, viene usato immediatamente per avviare la sincronizzazione in background senza alcuna interazione visibile. Se il token risulta scaduto (es. l'app viene riaperta il giorno dopo), il sistema richiede un nuovo token a Google in modo completamente invisibile: `window.open` viene temporaneamente intercettato per forzare il popup OAuth a dimensione 1×1px e posizione off-screen (`top:-1000, left:-1000`), rendendolo del tutto impercettibile. Con `prompt:''` e `login_hint`, Google seleziona automaticamente l'account e chiude il popup in ~300ms. `window.open` viene ripristinato immediatamente dopo. Una volta ottenuto il nuovo token, la sync parte automaticamente tramite `handleTokenResponse`. La funzione `ensureToken()` non richiede mai un nuovo token autonomamente (nessun popup a catena): verifica solo quello già in memoria e, se scaduto, lo rimuove silenziosamente. Ogni modifica locale avvia un timer di 15 secondi al termine del quale parte la sync (solo se il token è disponibile). La sync interviene istantaneamente anche quando l'utente chiude l'app o passa a un'altra scheda/app (`visibilitychange` + `beforeunload`), sempre con verifica della disponibilità del token.
 - **Sync Manuale**: Disponibile solo nelle impostazioni tramite il pulsante "Sincronizza ora", con feedback visivo sullo stato.
 - **Configurazione**: Utilizza il `GOOGLE_CLIENT_ID` specifico del progetto su Google Cloud Console (configurato in `app.js`). L'app non verificata supporta fino a 100 utenti test configurati nella console.
+
+## 9. Gestione PWA e Aggiornamenti
+L'applicazione è configurata come **Progressive Web App (PWA)** per garantire il funzionamento offline e un'esperienza simile a un'app nativa:
+- **Service Worker (sw.js)**: Utilizza una strategia **Network-First**. L'app cerca sempre di scaricare la versione più recente dei file (`index.html`, `app.js`, `style.css`) dalla rete. Se la rete non è disponibile, carica i file dalla cache locale.
+- **Aggiornamenti Automatici**: All'apertura dell'app, il Service Worker controlla immediatamente se esiste una nuova versione sul server. Viene inoltre eseguito un controllo periodico ogni 10 minuti.
+- **Auto-Reload**: Quando viene scaricato un nuovo Service Worker, il codice in `app.js` rileva il cambiamento di controllo (`controllerchange`) e ricarica automaticamente la pagina per applicare istantaneamente le ultime modifiche senza intervento manuale dell'utente (come la cancellazione dei dati del browser). Il listener viene attivato solo se esisteva già un controller attivo (`hadController`), evitando un reload inutile alla primissima visita dell'utente.
+- **skipWaiting & clients.claim**: Il Service Worker è configurato per attivarsi immediatamente e prendere il controllo della pagina non appena scaricato, velocizzando il processo di aggiornamento.

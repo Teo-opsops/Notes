@@ -1,4 +1,4 @@
-var CACHE_NAME = 'notes-cache-v3'; // Incrementing version to force update
+var CACHE_NAME = 'notes-cache-v4'; // v4: IndexedDB local storage
 var urlsToCache = [
   './',
   './index.html',

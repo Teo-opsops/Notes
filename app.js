@@ -5,8 +5,12 @@
 (function () {
   'use strict';
 
-  // ── Storage Key ──
-  const STORAGE_KEY = 'notesAppData';
+  // ── Storage Keys ──
+  const STORAGE_KEY = 'notesAppData'; // legacy localStorage key (for migration)
+  const IDB_NAME = 'NotesAppLocalDB';
+  const IDB_VERSION = 1;
+  const IDB_STORE = 'appData';
+  const IDB_DATA_KEY = 'notes'; // key within the object store
 
   // ── State ──
   let items = [];
@@ -14,6 +18,7 @@
   let currentEditingNoteId = null;
   let contextMenuItemId = null;
   let saveTimeout = null;
+  let _db = null; // IndexedDB reference
 
   // ── DOM References ──
   const topBarBack = document.getElementById('top-bar-back');
@@ -68,25 +73,113 @@
     return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) + ', ' + time;
   }
 
+  // ══════════════════════════════════════════════════════════
+  //  Local Persistence — IndexedDB
+  //  I dati delle note vengono salvati in un database locale
+  //  (IndexedDB) separato dalla cache del browser e da Google.
+  //  Questo garantisce che i dati persistano anche quando si
+  //  cancella la cache del browser.
+  // ══════════════════════════════════════════════════════════
+
+  // Open (or create) the IndexedDB database
+  function openDatabase() {
+    return new Promise(function (resolve, reject) {
+      if (_db) { resolve(_db); return; }
+      var request = indexedDB.open(IDB_NAME, IDB_VERSION);
+      request.onupgradeneeded = function (e) {
+        var db = e.target.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      request.onsuccess = function (e) {
+        _db = e.target.result;
+        resolve(_db);
+      };
+      request.onerror = function (e) {
+        console.warn('IndexedDB open error:', e.target.error);
+        reject(e.target.error);
+      };
+    });
+  }
+
+  // Read data from IndexedDB
+  function readFromIDB() {
+    return openDatabase().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, 'readonly');
+        var store = tx.objectStore(IDB_STORE);
+        var request = store.get(IDB_DATA_KEY);
+        request.onsuccess = function () { resolve(request.result || null); };
+        request.onerror = function () { reject(request.error); };
+      });
+    });
+  }
+
+  // Write data to IndexedDB
+  function writeToIDB(data) {
+    return openDatabase().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, 'readwrite');
+        var store = tx.objectStore(IDB_STORE);
+        var request = store.put(data, IDB_DATA_KEY);
+        request.onsuccess = function () { resolve(); };
+        request.onerror = function () { reject(request.error); };
+      });
+    });
+  }
+
   // ── Persistence ──
   function loadData() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        items = parsed.items || [];
+    return readFromIDB().then(function (data) {
+      if (data && data.items) {
+        items = data.items;
+        console.log('Notes: loaded ' + items.length + ' items from IndexedDB');
+      } else {
+        // Check for legacy localStorage data and migrate
+        try {
+          var raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            items = parsed.items || [];
+            if (items.length > 0) {
+              console.log('Notes: migrating ' + items.length + ' items from localStorage to IndexedDB');
+              // Save to IndexedDB immediately
+              writeToIDB({ items: items }).then(function () {
+                // Remove from localStorage after successful migration
+                localStorage.removeItem(STORAGE_KEY);
+                console.log('Notes: migration complete, localStorage cleaned');
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Notes: failed to migrate from localStorage', e);
+        }
       }
-    } catch (e) {
-      console.warn('Notes: failed to load data', e);
-    }
+    }).catch(function (err) {
+      console.warn('Notes: IndexedDB load failed, falling back to localStorage', err);
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          items = parsed.items || [];
+        }
+      } catch (e) {
+        console.warn('Notes: localStorage fallback also failed', e);
+      }
+    });
   }
 
   function saveData() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items: items }));
-    } catch (e) {
-      console.warn('Notes: failed to save data', e);
-    }
+    // Write to IndexedDB (async, fire-and-forget for speed)
+    writeToIDB({ items: items }).catch(function (err) {
+      console.warn('Notes: IndexedDB save failed, falling back to localStorage', err);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ items: items }));
+      } catch (e) {
+        console.warn('Notes: localStorage fallback also failed', e);
+      }
+    });
   }
 
   function debouncedSave() {
@@ -2282,20 +2375,26 @@
 
   // ── Init ──
   function init() {
-    loadData();
     applyTheme();
 
-    // Set initial history state
-    history.replaceState({ view: 'folder', folderId: null }, '');
+    // Load data from IndexedDB (async) then render
+    loadData().then(function () {
+      // Set initial history state
+      history.replaceState({ view: 'folder', folderId: null }, '');
 
-    renderAll();
+      renderAll();
 
-    // Initialize Google Auth (with delay for script loading)
-    setTimeout(initGoogleAuth, 300);
+      // Initialize Google Auth (with delay for script loading)
+      setTimeout(initGoogleAuth, 300);
+    });
   }
 
   // ── Register Service Worker ──
   if ('serviceWorker' in navigator) {
+    // Only reload on SW updates, not on first install.
+    // If a controller already exists, any future controllerchange means an update.
+    var hadController = !!navigator.serviceWorker.controller;
+
     navigator.serviceWorker.register('sw.js').then(function (registration) {
       // Check for updates on every page load
       registration.update();
@@ -2309,12 +2408,14 @@
     });
 
     // When the service worker is updated and takes control, reload the page
-    var refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', function() {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
+    if (hadController) {
+      var refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+    }
   }
 
   init();
