@@ -1697,6 +1697,36 @@
   var isSyncing = false;
   var tokenClient = null;
 
+  // ── Token Persistence Helpers ──
+  function saveTokenToStorage(accessToken, expiresIn) {
+    var expiryTime = Date.now() + (expiresIn * 1000) - 60000; // 1 min margin
+    localStorage.setItem('notesGoogleToken', JSON.stringify({
+      token: accessToken,
+      expiry: expiryTime
+    }));
+  }
+
+  function loadTokenFromStorage() {
+    try {
+      var saved = localStorage.getItem('notesGoogleToken');
+      if (!saved) return null;
+      var parsed = JSON.parse(saved);
+      if (parsed.token && parsed.expiry && Date.now() < parsed.expiry) {
+        return parsed.token;
+      }
+      // Token expired, clean up
+      localStorage.removeItem('notesGoogleToken');
+      return null;
+    } catch (e) {
+      localStorage.removeItem('notesGoogleToken');
+      return null;
+    }
+  }
+
+  function clearTokenFromStorage() {
+    localStorage.removeItem('notesGoogleToken');
+  }
+
   // ── Initialize Google Auth ──
   var isStartupTokenRequest = false;
 
@@ -1714,8 +1744,7 @@
       callback: handleTokenResponse,
       error_callback: function (err) {
         // Silent token request failed (popup blocked, user interaction needed, etc.)
-        // This is expected at startup — just ignore, user can manually sync later
-        console.log('Silent token request skipped (expected at startup):', err);
+        console.log('Token request error:', err);
         isStartupTokenRequest = false;
       }
     });
@@ -1726,18 +1755,51 @@
       try {
         googleUser = JSON.parse(savedUser);
         showSignedInUI();
-        // Token needs to be refreshed (tokens don't persist across sessions)
-        // Request token silently at startup — use prompt:'none' and login_hint
-        // to avoid showing any popup/consent screen to the user
-        if (tokenClient) {
+
+        // Try to restore token from localStorage (no popup, no network call)
+        var storedToken = loadTokenFromStorage();
+        if (storedToken) {
+          // Token is still valid — use it directly, completely silently
+          googleAccessToken = storedToken;
+          // Perform startup sync now that we have a valid token
+          if (localStorage.getItem('notesLastSync')) {
+            performStartupSync();
+          } else {
+            firstSyncCheck();
+          }
+        } else if (tokenClient) {
+          // Token expired (e.g. app opened the next day) — request a fresh one.
+          // Intercept the popup that Google OAuth opens and make it invisible:
+          // 1x1 pixel, positioned off-screen. Google auto-selects the account
+          // via login_hint, the popup redirects and self-closes in ~300ms.
+          // The user sees absolutely nothing.
+          var _origWindowOpen = window.open;
+          var _openRestored = false;
+          window.open = function(url, name, features) {
+            var popup = _origWindowOpen.call(window, url, name,
+              'width=1,height=1,top=-1000,left=-1000,menubar=no,toolbar=no,location=no,status=no,scrollbars=no');
+            if (!_openRestored) {
+              window.open = _origWindowOpen;
+              _openRestored = true;
+            }
+            return popup;
+          };
           isStartupTokenRequest = true;
           tokenClient.requestAccessToken({
             prompt: '',
             login_hint: googleUser.email || ''
           });
+          // Safety: restore window.open after a short delay
+          setTimeout(function() {
+            if (!_openRestored) {
+              window.open = _origWindowOpen;
+              _openRestored = true;
+            }
+          }, 2000);
         }
       } catch (e) {
         localStorage.removeItem('notesGoogleUser');
+        clearTokenFromStorage();
       }
     }
   }
@@ -1770,6 +1832,8 @@
     }
 
     googleAccessToken = response.access_token;
+    // Persist token for silent restore on next startup
+    saveTokenToStorage(response.access_token, response.expires_in || 3600);
 
     // Fetch user profile
     fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -1785,12 +1849,14 @@
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
       
-      // If we already synced in the past, perform startup sync (silent but updates status).
-      // Otherwise, do the firstSyncCheck to handle potential conflicts with modal.
-      if (localStorage.getItem('notesLastSync')) {
+      // If this was a startup token request (from expired stored token fallback),
+      // perform startup sync. Otherwise, do first sync check for new connections.
+      if (wasStartup && localStorage.getItem('notesLastSync')) {
         performStartupSync();
-      } else {
+      } else if (!localStorage.getItem('notesLastSync')) {
         firstSyncCheck();
+      } else {
+        performStartupSync();
       }
     })
     .catch(function (err) {
@@ -1809,6 +1875,8 @@
     googleUser = null;
     driveFileId = null;
     localStorage.removeItem('notesGoogleUser');
+    clearTokenFromStorage();
+    localStorage.removeItem('notesLastSync');
     showSignedOutUI();
   });
 
@@ -1836,31 +1904,29 @@
     syncStatusEl.className = 'sync-status' + (state ? ' ' + state : '');
   }
 
-  // ── Ensure we have a valid token ──
+  // ── Ensure we have a valid token (never shows popup) ──
   function ensureToken() {
     return new Promise(function (resolve, reject) {
       if (googleAccessToken) {
-        // Verify token is still valid
+        // Verify token is still valid via a lightweight API call
         fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + googleAccessToken)
         .then(function (res) {
           if (res.ok) {
             resolve(googleAccessToken);
           } else {
-            // Token expired, request new one
+            // Token expired — clear it, do NOT request a new one (would show popup)
             googleAccessToken = null;
-            if (tokenClient) {
-              tokenClient.requestAccessToken({ prompt: '' });
-            }
-            // The callback will handle it, but we can't easily chain
-            reject(new Error('Token expired, re-authenticating...'));
+            clearTokenFromStorage();
+            reject(new Error('Token expired. Please sync manually.'));
           }
         })
-        .catch(function () { reject(new Error('Token validation failed')); });
+        .catch(function () {
+          // Network error — token might still be valid, try using it anyway
+          resolve(googleAccessToken);
+        });
       } else {
-        if (tokenClient && googleUser) {
-          tokenClient.requestAccessToken({ prompt: '' });
-        }
-        reject(new Error('No token available, requesting...'));
+        // No token available at all — can't sync silently
+        reject(new Error('No token available. Please sync manually.'));
       }
     });
   }
@@ -2171,7 +2237,12 @@
   // Sync Now button (manual = visible feedback)
   syncNowBtn.addEventListener('click', function () {
     if (!googleAccessToken && googleUser) {
-      tokenClient.requestAccessToken({ prompt: '' });
+      // No valid token — request one (this is user-initiated, so popup is acceptable)
+      isStartupTokenRequest = false;
+      tokenClient.requestAccessToken({
+        prompt: '',
+        login_hint: googleUser.email || ''
+      });
       return;
     }
     syncWithDrive(false);
