@@ -1698,6 +1698,8 @@
   var tokenClient = null;
 
   // ── Initialize Google Auth ──
+  var isStartupTokenRequest = false;
+
   function initGoogleAuth() {
     // Check if GIS library is loaded
     if (typeof google === 'undefined' || !google.accounts) {
@@ -1709,7 +1711,13 @@
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-      callback: handleTokenResponse
+      callback: handleTokenResponse,
+      error_callback: function (err) {
+        // Silent token request failed (popup blocked, user interaction needed, etc.)
+        // This is expected at startup — just ignore, user can manually sync later
+        console.log('Silent token request skipped (expected at startup):', err);
+        isStartupTokenRequest = false;
+      }
     });
 
     // Check if we have a saved session
@@ -1719,9 +1727,14 @@
         googleUser = JSON.parse(savedUser);
         showSignedInUI();
         // Token needs to be refreshed (tokens don't persist across sessions)
-        // Request token silently at startup to automatically connect and sync
+        // Request token silently at startup — use prompt:'none' and login_hint
+        // to avoid showing any popup/consent screen to the user
         if (tokenClient) {
-          tokenClient.requestAccessToken({ prompt: '' });
+          isStartupTokenRequest = true;
+          tokenClient.requestAccessToken({
+            prompt: '',
+            login_hint: googleUser.email || ''
+          });
         }
       } catch (e) {
         localStorage.removeItem('notesGoogleUser');
@@ -1744,9 +1757,15 @@
 
   // ── Handle Token Response ──
   function handleTokenResponse(response) {
+    var wasStartup = isStartupTokenRequest;
+    isStartupTokenRequest = false;
+
     if (response.error) {
       console.error('Google auth error:', response);
-      updateSyncStatus('Errore di autenticazione', 'error');
+      // At startup, don't show error — just leave status as-is
+      if (!wasStartup) {
+        updateSyncStatus('Errore di autenticazione', 'error');
+      }
       return;
     }
 
@@ -1766,10 +1785,10 @@
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
       
-      // If we already synced in the past, perform a silent sync directly to start auto-sync.
+      // If we already synced in the past, perform startup sync (silent but updates status).
       // Otherwise, do the firstSyncCheck to handle potential conflicts with modal.
       if (localStorage.getItem('notesLastSync')) {
-        syncWithDrive(true);
+        performStartupSync();
       } else {
         firstSyncCheck();
       }
@@ -1938,8 +1957,11 @@
         if (items.length > 0) {
           return writeDriveFile({ items: items }).then(function () {
             localStorage.setItem('notesLastSync', now());
+            updateSyncStatus('Sincronizzato ✓', '');
           });
         }
+        localStorage.setItem('notesLastSync', now());
+        updateSyncStatus('Sincronizzato ✓', '');
         return;
       }
 
@@ -1952,9 +1974,10 @@
         if (localCount === 0 && cloudCount > 0) {
           // Local is empty, cloud has data → auto-download
           items = cloudItems;
-          saveData();
+          _originalSaveData();
           renderAll();
           localStorage.setItem('notesLastSync', now());
+          updateSyncStatus('Sincronizzato ✓', '');
           return;
         }
 
@@ -1962,6 +1985,7 @@
           // Cloud is empty, local has data → auto-upload
           return writeDriveFile({ items: items }).then(function () {
             localStorage.setItem('notesLastSync', now());
+            updateSyncStatus('Sincronizzato ✓', '');
           });
         }
 
@@ -1976,6 +2000,7 @@
           if (localJSON === cloudJSON) {
             // Identical data → no conflict, mark as synced
             localStorage.setItem('notesLastSync', now());
+            updateSyncStatus('Sincronizzato ✓', '');
             return;
           }
 
@@ -1988,6 +2013,8 @@
         }
 
         // Both empty → do nothing
+        localStorage.setItem('notesLastSync', now());
+        updateSyncStatus('Sincronizzato ✓', '');
       });
     })
     .catch(function (err) {
@@ -1999,9 +2026,10 @@
   syncUseCloud.addEventListener('click', function () {
     if (pendingDriveData && pendingDriveData.items) {
       items = pendingDriveData.items;
-      saveData();
+      _originalSaveData();
       renderAll();
       localStorage.setItem('notesLastSync', now());
+      updateSyncStatus('Sincronizzato ✓', '');
     }
     pendingDriveData = null;
     syncConflictOverlay.classList.remove('visible');
@@ -2013,10 +2041,61 @@
     // Upload local data to Drive, overwriting cloud
     writeDriveFile({ items: items }).then(function () {
       localStorage.setItem('notesLastSync', now());
+      updateSyncStatus('Sincronizzato ✓', '');
     }).catch(function (err) {
       console.error('Upload error:', err);
     });
   });
+
+  // ── Startup Sync (silent but updates status) ──
+  function performStartupSync() {
+    if (isSyncing) return;
+    if (!googleUser) return;
+
+    isSyncing = true;
+
+    ensureToken()
+    .then(function () {
+      return findDriveFile();
+    })
+    .then(function (fileInfo) {
+      if (fileInfo) {
+        return readDriveFile(fileInfo.id).then(function (driveData) {
+          if (driveData && driveData.items) {
+            var mergedMap = {};
+            driveData.items.forEach(function (item) {
+              mergedMap[item.id] = item;
+            });
+            items.forEach(function (item) {
+              var driveItem = mergedMap[item.id];
+              if (!driveItem || new Date(item.updatedAt) > new Date(driveItem.updatedAt)) {
+                mergedMap[item.id] = item;
+              }
+            });
+            items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
+            _originalSaveData(); // Use original saveData to avoid re-triggering auto-sync
+            renderAll();
+          }
+          return writeDriveFile({ items: items });
+        });
+      } else {
+        return writeDriveFile({ items: items });
+      }
+    })
+    .then(function () {
+      localStorage.setItem('notesLastSync', now());
+      hasPendingChanges = false;
+      // Update status UI so settings shows "Sincronizzato" after startup
+      updateSyncStatus('Sincronizzato ✓', '');
+    })
+    .catch(function (err) {
+      console.error('Startup sync error:', err);
+      // Don't show error for startup sync — user didn't trigger it
+    })
+    .finally(function () {
+      isSyncing = false;
+    });
+  }
 
   // ── Main Sync Logic ──
   function syncWithDrive(silent) {
@@ -2056,7 +2135,7 @@
             });
 
             items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
-            saveData();
+            _originalSaveData(); // Use original saveData to avoid re-triggering auto-sync
             renderAll();
           }
 
@@ -2071,6 +2150,8 @@
     .then(function () {
       localStorage.setItem('notesLastSync', now());
       hasPendingChanges = false;
+      // Always update status — both silent and non-silent syncs should reflect current state
+      updateSyncStatus('Sincronizzato ✓', '');
       if (!silent) {
         updateSyncStatus('Ultima sync: adesso', 'success');
         setTimeout(function () {
@@ -2103,8 +2184,8 @@
   saveData = function () {
     _originalSaveData();
     hasPendingChanges = true;
-    // Trigger silent auto-sync if connected
-    if (googleUser) {
+    // Trigger silent auto-sync if connected and have a token
+    if (googleUser && googleAccessToken) {
       clearTimeout(autoSyncTimer);
       autoSyncTimer = setTimeout(function () {
         syncWithDrive(true);
@@ -2112,14 +2193,14 @@
     }
   };
 
-  // Sync when app is closed/hidden — ONLY if there are pending changes
+  // Sync when app is closed/hidden — ONLY if there are pending changes AND we have a token
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser) {
+    if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser && googleAccessToken) {
       syncWithDrive(true);
     }
   });
   window.addEventListener('beforeunload', function () {
-    if (hasPendingChanges && googleUser) {
+    if (hasPendingChanges && googleUser && googleAccessToken) {
       syncWithDrive(true);
     }
   });
