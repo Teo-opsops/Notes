@@ -88,7 +88,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
 
 ## 9. Gestione PWA e Aggiornamenti
 L'applicazione è configurata come **Progressive Web App (PWA)** per garantire il funzionamento offline e un'esperienza simile a un'app nativa:
-- **Service Worker (sw.js)**: Utilizza una strategia **Network-First**. L'app cerca sempre di scaricare la versione più recente dei file (`index.html`, `app.js`, `style.css`) dalla rete. Se la rete non è disponibile, carica i file dalla cache locale.
+- **Service Worker (sw.js)**: Utilizza una strategia **Network-First** rigorosa (`cache: 'no-store'`). Previene il caricamento di file vecchi e stantii dalla cache HTTP del browser scaricando e aggiornando istantaneamente l'ultima versione disponibile ad ogni avvio online (gestendo contemporaneamente il fallback offline aggiornando iterativamente la cache con ogni risorsa scaricata).
 - **Aggiornamenti Automatici**: All'apertura dell'app, il Service Worker controlla immediatamente se esiste una nuova versione sul server. Viene inoltre eseguito un controllo periodico ogni 10 minuti.
 - **Auto-Reload**: Quando viene scaricato un nuovo Service Worker, il codice in `app.js` rileva il cambiamento di controllo (`controllerchange`) e ricarica automaticamente la pagina per applicare istantaneamente le ultime modifiche senza intervento manuale dell'utente (come la cancellazione dei dati del browser). Il listener viene attivato solo se esisteva già un controller attivo (`hadController`), evitando un reload inutile alla primissima visita dell'utente.
 - **skipWaiting & clients.claim**: Il Service Worker è configurato per attivarsi immediatamente e prendere il controllo della pagina non appena scaricato, velocizzando il processo di aggiornamento.

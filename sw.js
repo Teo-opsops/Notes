@@ -1,4 +1,4 @@
-var CACHE_NAME = 'notes-cache-v4'; // v4: IndexedDB local storage
+var CACHE_NAME = 'notes-cache-v5'; // v5: strict network-first
 var urlsToCache = [
   './',
   './index.html',
@@ -36,11 +36,22 @@ self.addEventListener('activate', function(event) {
   );
 });
 
-// Fetch event: Network-First strategy for better update experience
+// Fetch event: Network-First strategy with dynamic cache update
 self.addEventListener('fetch', function(event) {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    fetch(event.request).catch(function() {
-      return caches.match(event.request);
-    })
+    // Bypassa la cache HTTP del browser per forzare l'URL aggiornato dal server
+    fetch(event.request, { cache: 'no-store' })
+      .then(function(response) {
+        var responseClone = response.clone();
+        caches.open(CACHE_NAME).then(function(cache) {
+          cache.put(event.request, responseClone);
+        });
+        return response;
+      })
+      .catch(function() {
+        return caches.match(event.request);
+      })
   );
 });
