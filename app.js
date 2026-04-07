@@ -2076,7 +2076,7 @@
   }
 
   // Create or update file on Drive
-  function writeDriveFile(data, isUnload) {
+  function writeDriveFile(data) {
     var jsonStr = JSON.stringify(data);
     var boundary = '---notesapp' + Date.now();
 
@@ -2102,19 +2102,13 @@
       ? 'https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=multipart'
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
 
-    var options = {
+    return driveFetch(url, {
       method: driveFileId ? 'PATCH' : 'POST',
       headers: {
         'Content-Type': 'multipart/related; boundary=' + boundary
       },
       body: body
-    };
-
-    if (isUnload) {
-      options.keepalive = true;
-    }
-
-    return driveFetch(url, options)
+    })
     .then(function (res) { return res.json(); })
     .then(function (file) {
       driveFileId = file.id;
@@ -2377,22 +2371,27 @@
       clearTimeout(autoSyncTimer);
       autoSyncTimer = setTimeout(function () {
         syncWithDrive(true);
-      }, 15000); // Sync 15 seconds after last change
+      }, 3000); // Sync 3 seconds after last change
     }
   };
 
   // Fire-and-forget sync for when the app is closing
-  // Uses keepalive: true to ensure the network request finishes even if the tab closes.
-  // We skip reading from Drive to save time and prevent the promise from being dropped.
+  // Fallbacks to the Service Worker via postMessage to bypass keepalive/CORS constraints.
   function syncOnClose() {
-    if (!driveFileId || isSyncing) return; // Need driveFileId to blindly patch
+    if (!driveFileId || isSyncing) return;
     hasPendingChanges = false;
     clearTimeout(autoSyncTimer);
     
-    // Direct write with isUnload = true
-    writeDriveFile({ items: items }, true).catch(function(err) {
-      console.warn('Sync on close failed', err);
-    });
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SYNC_ON_CLOSE',
+        payload: { items: items },
+        token: googleAccessToken,
+        fileId: driveFileId
+      });
+    } else {
+      writeDriveFile({ items: items }).catch(function(){}); // fallback
+    }
     localStorage.setItem('notesLastSync', now());
   }
 
