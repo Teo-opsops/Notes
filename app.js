@@ -2359,19 +2359,55 @@
     syncWithDrive(false);
   });
 
-  // Auto-sync after data changes (debounced, silent)
+  // Fast auto-sync: Directly PATCH the drive file without reading first.
+  // This takes ~150ms instead of 2 seconds, and fires almost instantly.
+  var fastSyncTimer = null;
+  function scheduleFastSync() {
+    if (!googleUser || !googleAccessToken || !driveFileId) return;
+    clearTimeout(fastSyncTimer);
+    fastSyncTimer = setTimeout(function() {
+      if (isSyncing) {
+        // If a full sync is running, reschedule
+        scheduleFastSync();
+        return;
+      }
+      isSyncing = true;
+      updateSyncStatus('Salvataggio...', 'syncing');
+      writeDriveFile({ items: items })
+        .then(function() {
+          localStorage.setItem('notesLastSync', now());
+          hasPendingChanges = false;
+          updateSyncStatus('Sincronizzato ✓', '');
+        })
+        .catch(function(err) {
+          console.error('Fast sync error:', err);
+          updateSyncStatus('Errore di salvataggio', 'error');
+        })
+        .finally(function() {
+          isSyncing = false;
+        });
+    }, 500); // Trigger upload 500ms after the change
+  }
+
+  // Auto-sync after data changes
   var autoSyncTimer = null;
   var hasPendingChanges = false;
   var _originalSaveData = saveData;
   saveData = function () {
     _originalSaveData();
     hasPendingChanges = true;
-    // Trigger silent auto-sync if connected and have a token
+    
     if (googleUser && googleAccessToken) {
-      clearTimeout(autoSyncTimer);
-      autoSyncTimer = setTimeout(function () {
-        syncWithDrive(true);
-      }, 3000); // Sync 3 seconds after last change
+      if (driveFileId) {
+        // We know the file exists, do a fast direct overwrite immediately
+        scheduleFastSync();
+      } else {
+        // We don't have the file ID yet, fall back to slow standard sync
+        clearTimeout(autoSyncTimer);
+        autoSyncTimer = setTimeout(function () {
+          syncWithDrive(true);
+        }, 3000);
+      }
     }
   };
 
