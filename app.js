@@ -1824,13 +1824,52 @@
     localStorage.removeItem('notesGoogleToken');
   }
 
-  // ── Initialize Google Auth ──
-  var isStartupTokenRequest = false;
+  // ── Silent Token Refresh via GAPI (hidden iframe, no popup) ──
+  // Uses gapi.auth.authorize with immediate:true which performs
+  // the entire OAuth flow inside a hidden iframe — zero visible UI.
+  function silentRefreshViaGapi(email) {
+    return new Promise(function (resolve, reject) {
+      if (typeof gapi === 'undefined') {
+        reject(new Error('GAPI not loaded'));
+        return;
+      }
+      var authLoaded = false;
+      var loadTimeout = setTimeout(function () {
+        if (!authLoaded) reject(new Error('GAPI auth load timeout'));
+      }, 8000);
 
+      gapi.load('auth', {
+        callback: function () {
+          authLoaded = true;
+          clearTimeout(loadTimeout);
+          gapi.auth.authorize({
+            client_id: GOOGLE_CLIENT_ID,
+            scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+            immediate: true,
+            login_hint: email
+          }, function (authResult) {
+            if (authResult && !authResult.error && authResult.access_token) {
+              resolve({
+                access_token: authResult.access_token,
+                expires_in: parseInt(authResult.expires_in) || 3600
+              });
+            } else {
+              reject(new Error(authResult ? authResult.error : 'Silent auth failed'));
+            }
+          });
+        },
+        onerror: function () {
+          clearTimeout(loadTimeout);
+          reject(new Error('Failed to load GAPI auth module'));
+        }
+      });
+    });
+  }
+
+  // ── Initialize Google Auth ──
   function initGoogleAuth() {
     // Check if GIS library is loaded
     if (typeof google === 'undefined' || !google.accounts) {
-      // Retry after a short delay (script might still be loading)
       setTimeout(initGoogleAuth, 500);
       return;
     }
@@ -1840,9 +1879,7 @@
       scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
       callback: handleTokenResponse,
       error_callback: function (err) {
-        // Silent token request failed (popup blocked, user interaction needed, etc.)
         console.log('Token request error:', err);
-        isStartupTokenRequest = false;
       }
     });
 
@@ -1858,41 +1895,30 @@
         if (storedToken) {
           // Token is still valid — use it directly, completely silently
           googleAccessToken = storedToken;
-          // Perform startup sync now that we have a valid token
           if (localStorage.getItem('notesLastSync')) {
             performStartupSync();
           } else {
             firstSyncCheck();
           }
-        } else if (tokenClient) {
-          // Token expired (e.g. app opened the next day) — request a fresh one.
-          // Intercept the popup that Google OAuth opens and make it invisible:
-          // 1x1 pixel, positioned off-screen. Google auto-selects the account
-          // via login_hint, the popup redirects and self-closes in ~300ms.
-          // The user sees absolutely nothing.
-          var _origWindowOpen = window.open;
-          var _openRestored = false;
-          window.open = function(url, name, features) {
-            var popup = _origWindowOpen.call(window, url, name,
-              'width=1,height=1,top=-1000,left=-1000,menubar=no,toolbar=no,location=no,status=no,scrollbars=no');
-            if (!_openRestored) {
-              window.open = _origWindowOpen;
-              _openRestored = true;
-            }
-            return popup;
-          };
-          isStartupTokenRequest = true;
-          tokenClient.requestAccessToken({
-            prompt: '',
-            login_hint: googleUser.email || ''
-          });
-          // Safety: restore window.open after a short delay
-          setTimeout(function() {
-            if (!_openRestored) {
-              window.open = _origWindowOpen;
-              _openRestored = true;
-            }
-          }, 2000);
+        } else {
+          // Token expired — attempt invisible refresh via hidden iframe (gapi.auth)
+          // Uses immediate:true → hidden iframe, zero visible UI, no popup.
+          silentRefreshViaGapi(googleUser.email)
+            .then(function (result) {
+              googleAccessToken = result.access_token;
+              saveTokenToStorage(result.access_token, result.expires_in || 3600);
+              console.log('Notes: silent token refresh succeeded');
+              if (localStorage.getItem('notesLastSync')) {
+                performStartupSync();
+              } else {
+                firstSyncCheck();
+              }
+            })
+            .catch(function (err) {
+              console.log('Notes: silent token refresh failed —', err.message);
+              // Don't show any popup — user can manually sync from settings
+              updateSyncStatus('Tocca Sincronizza per aggiornare', '');
+            });
         }
       } catch (e) {
         localStorage.removeItem('notesGoogleUser');
@@ -1914,22 +1940,15 @@
     tokenClient.requestAccessToken();
   });
 
-  // ── Handle Token Response ──
+  // ── Handle Token Response (user-initiated sign-in only) ──
   function handleTokenResponse(response) {
-    var wasStartup = isStartupTokenRequest;
-    isStartupTokenRequest = false;
-
     if (response.error) {
       console.error('Google auth error:', response);
-      // At startup, don't show error — just leave status as-is
-      if (!wasStartup) {
-        updateSyncStatus('Errore di autenticazione', 'error');
-      }
+      updateSyncStatus('Errore di autenticazione', 'error');
       return;
     }
 
     googleAccessToken = response.access_token;
-    // Persist token for silent restore on next startup
     saveTokenToStorage(response.access_token, response.expires_in || 3600);
 
     // Fetch user profile
@@ -1945,15 +1964,11 @@
       };
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
-      
-      // If this was a startup token request (from expired stored token fallback),
-      // perform startup sync. Otherwise, do first sync check for new connections.
-      if (wasStartup && localStorage.getItem('notesLastSync')) {
+
+      if (localStorage.getItem('notesLastSync')) {
         performStartupSync();
-      } else if (!localStorage.getItem('notesLastSync')) {
-        firstSyncCheck();
       } else {
-        performStartupSync();
+        firstSyncCheck();
       }
     })
     .catch(function (err) {
@@ -2334,8 +2349,7 @@
   // Sync Now button (manual = visible feedback)
   syncNowBtn.addEventListener('click', function () {
     if (!googleAccessToken && googleUser) {
-      // No valid token — request one (this is user-initiated, so popup is acceptable)
-      isStartupTokenRequest = false;
+      // No valid token — request one (user-initiated, popup is acceptable)
       tokenClient.requestAccessToken({
         prompt: '',
         login_hint: googleUser.email || ''
