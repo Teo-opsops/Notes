@@ -2076,7 +2076,7 @@
   }
 
   // Create or update file on Drive
-  function writeDriveFile(data) {
+  function writeDriveFile(data, isUnload) {
     var jsonStr = JSON.stringify(data);
     var boundary = '---notesapp' + Date.now();
 
@@ -2102,13 +2102,19 @@
       ? 'https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=multipart'
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
 
-    return driveFetch(url, {
+    var options = {
       method: driveFileId ? 'PATCH' : 'POST',
       headers: {
         'Content-Type': 'multipart/related; boundary=' + boundary
       },
       body: body
-    })
+    };
+
+    if (isUnload) {
+      options.keepalive = true;
+    }
+
+    return driveFetch(url, options)
     .then(function (res) { return res.json(); })
     .then(function (file) {
       driveFileId = file.id;
@@ -2375,15 +2381,30 @@
     }
   };
 
+  // Fire-and-forget sync for when the app is closing
+  // Uses keepalive: true to ensure the network request finishes even if the tab closes.
+  // We skip reading from Drive to save time and prevent the promise from being dropped.
+  function syncOnClose() {
+    if (!driveFileId || isSyncing) return; // Need driveFileId to blindly patch
+    hasPendingChanges = false;
+    clearTimeout(autoSyncTimer);
+    
+    // Direct write with isUnload = true
+    writeDriveFile({ items: items }, true).catch(function(err) {
+      console.warn('Sync on close failed', err);
+    });
+    localStorage.setItem('notesLastSync', now());
+  }
+
   // Sync when app is closed/hidden — ONLY if there are pending changes AND we have a token
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden' && hasPendingChanges && googleUser && googleAccessToken) {
-      syncWithDrive(true);
+      syncOnClose();
     }
   });
   window.addEventListener('beforeunload', function () {
     if (hasPendingChanges && googleUser && googleAccessToken) {
-      syncWithDrive(true);
+      syncOnClose();
     }
   });
 
