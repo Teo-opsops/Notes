@@ -41,7 +41,10 @@
   const contextTitle = document.getElementById('context-title');
   const contextType = document.getElementById('context-type');
   const contextRename = document.getElementById('context-rename');
+  const contextPin = document.getElementById('context-pin');
+  const contextPinText = document.getElementById('context-pin-text');
   const contextDownload = document.getElementById('context-download');
+  const contextShare = document.getElementById('context-share');
   const contextDelete = document.getElementById('context-delete');
 
   const editorView = document.getElementById('editor-view');
@@ -188,8 +191,21 @@
   }
 
   // ── Data Helpers ──
+  let _itemsMap = new Map();
+  let _lastItemsRef = null;
+  let _lastItemsLen = -1;
+
   function getItem(id) {
-    return items.find(function (i) { return i.id === id; });
+    if (items !== _lastItemsRef || items.length !== _lastItemsLen) {
+      _itemsMap.clear();
+      const len = items.length;
+      for (let i = 0; i < len; i++) {
+        _itemsMap.set(items[i].id, items[i]);
+      }
+      _lastItemsRef = items;
+      _lastItemsLen = len;
+    }
+    return _itemsMap.get(id);
   }
 
   function getChildren(parentId) {
@@ -197,17 +213,36 @@
   }
 
   function getSortedChildren(parentId) {
-    const children = getChildren(parentId);
-    // Folders first, then notes. Filter out deleted items.
-    const folders = children.filter(function (i) { return i.type === 'folder' && !i.deleted; });
-    const notes = children.filter(function (i) { return i.type === 'note' && !i.deleted; });
-    folders.sort(function (a, b) { 
-      return (a.name || '').localeCompare(b.name || ''); 
+    const active = getChildren(parentId).filter(function (i) { return !i.deleted; });
+    const sortType = localStorage.getItem('notesAppSortType') || 'alpha';
+
+    function getPriority(item) {
+      if (item.pinned) {
+        return item.type === 'folder' ? 4 : 3;
+      }
+      return item.type === 'folder' ? 2 : 1;
+    }
+
+    return active.sort(function(a, b) {
+      const pA = getPriority(a);
+      const pB = getPriority(b);
+      if (pA !== pB) return pB - pA;
+
+      if (sortType === 'alpha') {
+        const titleA = a.type === 'folder' ? (a.name || '') : getNoteTitle(a);
+        const titleB = b.type === 'folder' ? (b.name || '') : getNoteTitle(b);
+        return titleA.localeCompare(titleB);
+      } else if (sortType === 'date-updated') {
+        const da = a.updatedAt || 0;
+        const db = b.updatedAt || 0;
+        return db > da ? 1 : (db < da ? -1 : 0);
+      } else if (sortType === 'date-created') {
+        const da = a.createdAt || 0;
+        const db = b.createdAt || 0;
+        return db > da ? 1 : (db < da ? -1 : 0);
+      }
+      return 0;
     });
-    notes.sort(function (a, b) { 
-      return getNoteTitle(a).localeCompare(getNoteTitle(b)); 
-    });
-    return folders.concat(notes);
   }
 
   function getAncestors(folderId) {
@@ -222,35 +257,57 @@
     return ancestors;
   }
 
-  function deleteRecursive(id, permanent) {
+  function deleteRecursive(idOrIds, permanent) {
     if (permanent) {
-      const children = getChildren(id);
-      children.forEach(function (child) {
-        deleteRecursive(child.id, true);
-      });
-      items = items.filter(function (i) { return i.id !== id; });
-    } else {
-      const item = getItem(id);
-      if (item) {
-        item.deleted = true;
-        item.deletedAt = now();
-        item.updatedAt = now();
+      const toDeleteIds = new Set(Array.isArray(idOrIds) ? idOrIds : [idOrIds]);
+
+      let added = true;
+      while (added) {
+        added = false;
+        const len = items.length;
+        for (let i = 0; i < len; i++) {
+          if (!toDeleteIds.has(items[i].id) && toDeleteIds.has(items[i].parentId)) {
+            toDeleteIds.add(items[i].id);
+            added = true;
+          }
+        }
       }
+
+      items = items.filter(function (i) { return !toDeleteIds.has(i.id); });
+    } else {
+      const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      ids.forEach(function(id) {
+        const item = getItem(id);
+        if (item) {
+          item.deleted = true;
+          item.deletedAt = now();
+          item.updatedAt = now();
+        }
+      });
     }
   }
 
   function getNoteTitle(item) {
     if (item.name && item.name.trim()) return item.name;
-    if (item.content && item.content.trim()) return item.content.trim().split('\n')[0].trim();
+    if (item.content && item.content.trim()) {
+      const text = item.content.trim();
+      const firstNewline = text.indexOf('\n');
+      return firstNewline === -1 ? text : text.substring(0, firstNewline).trim();
+    }
     return 'Nota senza titolo';
   }
 
   function getNotePreview(content) {
-    if (!content || !content.trim()) return '';
-    const lines = content.trim().split('\n');
-    if (lines.length <= 1) return '';
-    // Return second line onwards as preview
-    return lines.slice(1).join(' ').trim().substring(0, 100);
+    if (!content) return '';
+    const text = content.trim();
+    const firstNewline = text.indexOf('\n');
+    if (firstNewline === -1) return '';
+    
+    // Limits extraction to characters without spanning the whole text memory
+    return text.substring(firstNewline + 1, firstNewline + 151)
+               .replace(/\s+/g, ' ')
+               .trim()
+               .substring(0, 100);
   }
 
   // ── SVG Icons ──
@@ -319,6 +376,16 @@
       emptyState.style.display = 'none';
       itemList.style.display = 'flex';
 
+      const childCounts = {};
+      const itemsLen = items.length;
+      for (let i = 0; i < itemsLen; i++) {
+        if (!items[i].deleted && items[i].parentId !== null) {
+          childCounts[items[i].parentId] = (childCounts[items[i].parentId] || 0) + 1;
+        }
+      }
+
+      const fragment = document.createDocumentFragment();
+
       sorted.forEach(function (item) {
         // Wrapper for swipe/drag
         const wrapper = document.createElement('div');
@@ -359,7 +426,7 @@
         }
 
         if (item.type === 'folder') {
-          const count = getChildren(item.id).length;
+          const count = childCounts[item.id] || 0;
           if (count > 0) {
             const previewEl = document.createElement('div');
             previewEl.className = 'item-preview';
@@ -550,8 +617,10 @@
 
         wrapper.appendChild(swipeBg);
         wrapper.appendChild(card);
-        itemList.appendChild(wrapper);
+        fragment.appendChild(wrapper);
       });
+
+      itemList.appendChild(fragment);
     }
   }
 
@@ -748,7 +817,79 @@
     }
   });
 
+  const editorBackdrop = document.getElementById('editor-backdrop');
+  function updateBackdrop() {
+    if (!editorBackdrop) return;
+    const text = editorTextarea.value;
+    
+    // Testo puro con escape per evitare formattazione non voluta
+    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // Trova URL e assegna classe (la regex intercetta "http://" o "https://")
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    html = html.replace(urlRegex, '<span class="url-link">$1</span>');
+    
+    if (html.endsWith('\n')) html += '<br>';
+    editorBackdrop.innerHTML = html;
+  }
+
+  const linkMenu = document.getElementById('link-menu');
+  const linkMenuOpen = document.getElementById('link-menu-open');
+  let linkMenuTarget = '';
+
+  let taStartX = 0, taStartY = 0;
+  let taScrolling = false;
+
+  editorTextarea.addEventListener('pointerdown', function(e) {
+    taStartX = e.clientX;
+    taStartY = e.clientY;
+    taScrolling = false;
+    if (linkMenu) linkMenu.style.display = 'none';
+  });
+
+  editorTextarea.addEventListener('pointermove', function(e) {
+    if (Math.abs(e.clientX - taStartX) > 10 || Math.abs(e.clientY - taStartY) > 10) {
+      taScrolling = true;
+    }
+  });
+
+  // Usiamo click perché il selectionStart s'imposta dopo pointerup, prima del click natively su mobile.
+  editorTextarea.addEventListener('click', function(e) {
+    if (taScrolling) return;
+
+    const pos = editorTextarea.selectionStart;
+    const val = editorTextarea.value;
+    if (pos === undefined) return;
+
+    let start = pos;
+    while (start > 0 && /\S/.test(val[start - 1])) start--;
+    let end = pos;
+    while (end < val.length && /\S/.test(val[end])) end++;
+    
+    let word = val.substring(start, end);
+    word = word.replace(/[.,;!?()]+$/, ''); 
+    
+    if (/^https?:\/\/[^\s]+$/.test(word)) {
+      linkMenuTarget = word;
+      if (linkMenu) {
+        linkMenu.style.display = 'block';
+        let x = e.clientX - 50; 
+        if (x < 10) x = 10;
+        linkMenu.style.left = x + 'px';
+        linkMenu.style.top = (e.clientY - 60) + 'px';
+      }
+    }
+  });
+  
+  if (linkMenuOpen) {
+    linkMenuOpen.addEventListener('click', function() {
+      window.open(linkMenuTarget, '_blank');
+      linkMenu.style.display = 'none';
+    });
+  }
+
   editorTextarea.addEventListener('input', function () {
+    updateBackdrop();
     if (currentEditingNoteId) {
       const note = getItem(currentEditingNoteId);
       if (note) {
@@ -777,6 +918,11 @@
     contextMenuItemId = itemId;
     contextTitle.textContent = item.type === 'folder' ? item.name : getNoteTitle(item);
     contextType.textContent = item.type === 'folder' ? 'Cartella' : 'Nota';
+
+    // Set pin text
+    if (contextPinText) {
+      contextPinText.textContent = item.pinned ? 'Rimuovi da in alto' : 'Fissa in alto';
+    }
 
     // Show/hide rename option (only for folders)
     contextRename.style.display = item.type === 'folder' ? 'flex' : 'none';
@@ -814,6 +960,42 @@
       modalConfirm.textContent = 'Salva';
       modalConfirm.className = 'modal-btn modal-btn-confirm';
       showModal();
+    }, 200);
+  });
+
+  contextPin.addEventListener('click', function () {
+    const item = getItem(contextMenuItemId);
+    if (!item) return;
+
+    item.pinned = !item.pinned;
+    item.updatedAt = now();
+    saveData();
+    renderAll();
+
+    closeContextMenu();
+    history.back();
+  });
+
+  contextShare.addEventListener('click', function () {
+    const item = getItem(contextMenuItemId);
+    if (!item) return;
+
+    closeContextMenu();
+    history.back();
+
+    setTimeout(function () {
+      if (item.type === 'note') {
+        if (navigator.share) {
+          navigator.share({
+            title: getNoteTitle(item),
+            text: getNoteContentAsText(item)
+          }).catch(console.error);
+        } else {
+          alert('La condivisione non è supportata su questo browser/dispositivo.');
+        }
+      } else {
+        alert('Puoi condividere solo singole note.');
+      }
     }, 200);
   });
 
@@ -957,10 +1139,19 @@
   const settingsOverlay = document.getElementById('settings-overlay');
   const settingsClose = document.getElementById('settings-close');
   const amoledToggle = document.getElementById('amoled-toggle');
+  const sortTypeSelect = document.getElementById('sort-type-select');
   const themeDots = document.querySelectorAll('.theme-dot');
 
   let currentTheme = localStorage.getItem('notesAppTheme') || 'white';
   let isAmoled = localStorage.getItem('notesAppAmoled') !== 'false';
+
+  if (sortTypeSelect) {
+    sortTypeSelect.value = localStorage.getItem('notesAppSortType') || 'alpha';
+    sortTypeSelect.addEventListener('change', function() {
+      localStorage.setItem('notesAppSortType', this.value);
+      renderAll();
+    });
+  }
 
   function applyTheme() {
     document.body.className = 'theme-' + currentTheme;
@@ -1063,7 +1254,13 @@
 
   function renderTrashList() {
     trashList.innerHTML = '';
-    const deletedItems = items.filter(function(i) { return i.deleted; });
+    const deletedItems = items.filter(function(i) { return i.deleted; }).sort(function(a, b) {
+      const db = b.deletedAt || b.updatedAt;
+      const da = a.deletedAt || a.updatedAt;
+      if (!db) return -1;
+      if (!da) return 1;
+      return db > da ? 1 : (db < da ? -1 : 0);
+    });
     if (deletedItems.length === 0) {
       trashEmptyState.style.display = 'flex';
       trashList.style.display = 'none';
@@ -1073,6 +1270,7 @@
       trashList.style.display = 'flex';
       emptyTrashBtn.style.display = 'flex';
 
+      const fragment = document.createDocumentFragment();
       deletedItems.forEach(function(item) {
         const card = document.createElement('div');
         card.className = 'item-card';
@@ -1126,8 +1324,9 @@
 
         card.appendChild(restoreDiv);
         card.appendChild(permDeleteDiv);
-        trashList.appendChild(card);
+        fragment.appendChild(card);
       });
+      trashList.appendChild(fragment);
     }
   }
 
@@ -1150,7 +1349,10 @@
     if (confirm('Sei sicuro di voler svuotare il cestino? Tutti gli elementi al suo interno verranno eliminati permanentemente.')) {
       // Find all top-level deleted items and permanently delete them, so their children go too
       const deletedItems = items.filter(function(i) { return i.deleted; });
-      deletedItems.forEach(function(i) { deleteRecursive(i.id, true); });
+      const idsToDelete = deletedItems.map(function(i) { return i.id; });
+      if (idsToDelete.length > 0) {
+        deleteRecursive(idsToDelete, true);
+      }
       saveData();
       renderTrashList();
       renderAll();
@@ -1242,6 +1444,7 @@
 
     editorTextarea.style.display = '';
     editorTextarea.value = note.content;
+    if (typeof updateBackdrop === 'function') updateBackdrop();
     checklistContainer.style.display = 'none';
     updateCharCount();
   }
@@ -1573,6 +1776,8 @@
       editorTextarea.value = note.content || '';
     }
 
+    if (typeof updateBackdrop === 'function') updateBackdrop();
+
     updateCharCount();
     renderAttachments(note);
     editorView.classList.add('visible');
@@ -1803,13 +2008,13 @@
     }));
   }
 
-  function loadTokenFromStorage() {
+  function loadTokenFromStorage(returnFullData) {
     try {
       var saved = localStorage.getItem('notesGoogleToken');
       if (!saved) return null;
       var parsed = JSON.parse(saved);
       if (parsed.token && parsed.expiry && Date.now() < parsed.expiry) {
-        return parsed.token;
+        return returnFullData === true ? parsed : parsed.token;
       }
       // Token expired, clean up
       localStorage.removeItem('notesGoogleToken');
@@ -1866,11 +2071,36 @@
     });
   }
 
+  var tokenRefreshTimer = null;
+  function schedulePredictiveTokenRefresh(expiresInSec) {
+    if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+    var refreshDelayMs = (expiresInSec - 300) * 1000; 
+    if (refreshDelayMs <= 0) refreshDelayMs = 10000;
+    
+    tokenRefreshTimer = setTimeout(function() {
+      if (googleUser && googleUser.email) {
+        silentRefreshViaGapi(googleUser.email)
+          .then(function (result) {
+            googleAccessToken = result.access_token;
+            saveTokenToStorage(result.access_token, result.expires_in || 3600);
+            schedulePredictiveTokenRefresh(result.expires_in || 3600);
+          })
+          .catch(function () {});
+      }
+    }, refreshDelayMs);
+  }
+
   // ── Initialize Google Auth ──
   function initGoogleAuth() {
     // Check if GIS library is loaded
     if (typeof google === 'undefined' || !google.accounts) {
-      setTimeout(initGoogleAuth, 500);
+      var gScript = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+      if (gScript && !gScript.dataset.hooked) {
+        gScript.dataset.hooked = 'true';
+        gScript.addEventListener('load', initGoogleAuth);
+      } else if (!gScript) {
+        setTimeout(initGoogleAuth, 500);
+      }
       return;
     }
 
@@ -1891,10 +2121,14 @@
         showSignedInUI();
 
         // Try to restore token from localStorage (no popup, no network call)
-        var storedToken = loadTokenFromStorage();
-        if (storedToken) {
+        var storedTokenObj = loadTokenFromStorage(true);
+        if (storedTokenObj && storedTokenObj.token) {
           // Token is still valid — use it directly, completely silently
-          googleAccessToken = storedToken;
+          googleAccessToken = storedTokenObj.token;
+          
+          var timeToExpireSec = Math.floor((storedTokenObj.expiry - Date.now()) / 1000);
+          schedulePredictiveTokenRefresh(timeToExpireSec);
+
           if (localStorage.getItem('notesLastSync')) {
             performStartupSync();
           } else {
@@ -1950,6 +2184,7 @@
 
     googleAccessToken = response.access_token;
     saveTokenToStorage(response.access_token, response.expires_in || 3600);
+    schedulePredictiveTokenRefresh(response.expires_in || 3600);
 
     // Fetch user profile
     fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -1957,19 +2192,35 @@
     })
     .then(function (res) { return res.json(); })
     .then(function (user) {
-      googleUser = {
-        name: user.name,
-        email: user.email,
-        picture: user.picture
-      };
+      googleUser = { name: user.name, email: user.email, picture: user.picture };
       localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
       showSignedInUI();
 
-      if (localStorage.getItem('notesLastSync')) {
-        performStartupSync();
-      } else {
-        firstSyncCheck();
+      // Parallelize: Convert Avatar to Base64 (zero-latency future loads) without waiting
+      if (user.picture) {
+        var img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = function() {
+          var cvs = document.createElement('canvas');
+          cvs.width = img.width; cvs.height = img.height;
+          cvs.getContext('2d').drawImage(img, 0, 0);
+          try {
+            googleUser.picture = cvs.toDataURL('image/jpeg', 0.8);
+            localStorage.setItem('notesGoogleUser', JSON.stringify(googleUser));
+            if (profileAvatar) profileAvatar.src = googleUser.picture;
+          } catch (e) {}
+        };
+        img.src = user.picture;
       }
+
+      // Parallelize: Launch initial sync detached from parsing flows
+      setTimeout(function() {
+        if (localStorage.getItem('notesLastSync')) {
+          performStartupSync();
+        } else {
+          firstSyncCheck();
+        }
+      }, 0);
     })
     .catch(function (err) {
       console.error('Failed to fetch user info:', err);
@@ -1989,6 +2240,7 @@
     localStorage.removeItem('notesGoogleUser');
     clearTokenFromStorage();
     localStorage.removeItem('notesLastSync');
+    localStorage.removeItem('notesDriveFileId');
     showSignedOutUI();
   });
 
@@ -2020,22 +2272,15 @@
   function ensureToken() {
     return new Promise(function (resolve, reject) {
       if (googleAccessToken) {
-        // Verify token is still valid via a lightweight API call
-        fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + googleAccessToken)
-        .then(function (res) {
-          if (res.ok) {
-            resolve(googleAccessToken);
-          } else {
-            // Token expired — clear it, do NOT request a new one (would show popup)
-            googleAccessToken = null;
-            clearTokenFromStorage();
-            reject(new Error('Token expired. Please sync manually.'));
-          }
-        })
-        .catch(function () {
-          // Network error — token might still be valid, try using it anyway
-          resolve(googleAccessToken);
-        });
+        // Verify token locally via expiration timestamp
+        var validToken = loadTokenFromStorage();
+        if (validToken) {
+          resolve(validToken);
+        } else {
+          // Token expired locally
+          googleAccessToken = null;
+          reject(new Error('Token expired. Please sync manually.'));
+        }
       } else {
         // No token available at all — can't sync silently
         reject(new Error('No token available. Please sync manually.'));
@@ -2048,11 +2293,22 @@
     options = options || {};
     options.headers = options.headers || {};
     options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
+    // Keep internal TCP connections alive to bypass SSL handshake overhead on repeated syncs
+    if (typeof options.keepalive === 'undefined') options.keepalive = true;
     return fetch(url, options);
   }
 
   // Find or create the sync file in appDataFolder
   function findDriveFile() {
+    if (driveFileId) {
+      return Promise.resolve({ id: driveFileId });
+    }
+    var savedId = localStorage.getItem('notesDriveFileId');
+    if (savedId) {
+      driveFileId = savedId;
+      return Promise.resolve({ id: driveFileId });
+    }
+
     return driveFetch(
       'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27' +
       DRIVE_FILE_NAME + '%27&fields=files(id,modifiedTime)'
@@ -2061,6 +2317,7 @@
     .then(function (data) {
       if (data.files && data.files.length > 0) {
         driveFileId = data.files[0].id;
+        localStorage.setItem('notesDriveFileId', driveFileId);
         return { id: driveFileId, modifiedTime: data.files[0].modifiedTime };
       }
       return null;
@@ -2078,16 +2335,24 @@
   // Create or update file on Drive
   function writeDriveFile(data) {
     var jsonStr = JSON.stringify(data);
-    var boundary = '---notesapp' + Date.now();
 
+    if (driveFileId) {
+      // Opt. 1: Ultra-fast Media Upload for PATCH (payload halved by skipping metadata + boundaries)
+      return driveFetch('https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=media', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonStr
+      })
+      .then(function (res) { return res.json(); });
+    }
+
+    // POST requires multipart to assign name and parents concurrently
+    var boundary = '---notesapp' + Date.now();
     var metadata = {
       name: DRIVE_FILE_NAME,
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      parents: ['appDataFolder']
     };
-
-    if (!driveFileId) {
-      metadata.parents = ['appDataFolder'];
-    }
 
     var body =
       '--' + boundary + '\r\n' +
@@ -2098,20 +2363,15 @@
       jsonStr + '\r\n' +
       '--' + boundary + '--';
 
-    var url = driveFileId
-      ? 'https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=multipart'
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-
-    return driveFetch(url, {
-      method: driveFileId ? 'PATCH' : 'POST',
-      headers: {
-        'Content-Type': 'multipart/related; boundary=' + boundary
-      },
+    return driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
       body: body
     })
     .then(function (res) { return res.json(); })
     .then(function (file) {
       driveFileId = file.id;
+      localStorage.setItem('notesDriveFileId', driveFileId);
       return file;
     });
   }
@@ -2126,18 +2386,21 @@
 
   function firstSyncCheck() {
     ensureToken()
-    .then(function () {
-      return findDriveFile();
-    })
+    .then(findDriveFile)
     .then(function (fileInfo) {
+      var localCount = items.filter(function (i) { return !i.deleted; }).length;
+
       if (!fileInfo) {
-        // No data on Drive → upload local data silently
-        if (items.length > 0) {
-          return writeDriveFile({ items: items }).then(function () {
-            localStorage.setItem('notesLastSync', now());
-            updateSyncStatus('Sincronizzato ✓', '');
-          });
+        // No file on Drive
+        if (localCount > 0) {
+          // Local has data but no cloud file → show dialog (cloud = 0)
+          pendingDriveData = { items: [] };
+          syncLocalCount.textContent = localCount + ' element' + (localCount === 1 ? 'o' : 'i');
+          syncCloudCount.textContent = '0 elementi';
+          syncConflictOverlay.classList.add('visible');
+          return;
         }
+        // Both empty → nothing to ask
         localStorage.setItem('notesLastSync', now());
         updateSyncStatus('Sincronizzato ✓', '');
         return;
@@ -2145,54 +2408,21 @@
 
       // Drive has data → read it
       return readDriveFile(fileInfo.id).then(function (driveData) {
-        var localCount = items.filter(function (i) { return !i.deleted; }).length;
         var cloudItems = driveData && driveData.items ? driveData.items : [];
         var cloudCount = cloudItems.filter(function (i) { return !i.deleted; }).length;
 
-        if (localCount === 0 && cloudCount > 0) {
-          // Local is empty, cloud has data → auto-download
-          items = cloudItems;
-          _originalSaveData();
-          renderAll();
+        if (localCount === 0 && cloudCount === 0) {
+          // Both empty → nothing to ask
           localStorage.setItem('notesLastSync', now());
           updateSyncStatus('Sincronizzato ✓', '');
           return;
         }
 
-        if (localCount > 0 && cloudCount === 0) {
-          // Cloud is empty, local has data → auto-upload
-          return writeDriveFile({ items: items }).then(function () {
-            localStorage.setItem('notesLastSync', now());
-            updateSyncStatus('Sincronizzato ✓', '');
-          });
-        }
-
-        if (localCount > 0 && cloudCount > 0) {
-          // Both have data → compare content deeply
-          var sortById = function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; };
-          var localSorted = items.slice().sort(sortById);
-          var cloudSorted = cloudItems.slice().sort(sortById);
-          var localJSON = JSON.stringify(localSorted);
-          var cloudJSON = JSON.stringify(cloudSorted);
-
-          if (localJSON === cloudJSON) {
-            // Identical data → no conflict, mark as synced
-            localStorage.setItem('notesLastSync', now());
-            updateSyncStatus('Sincronizzato ✓', '');
-            return;
-          }
-
-          // Data differs → show conflict dialog
-          pendingDriveData = driveData;
-          syncLocalCount.textContent = localCount + ' element' + (localCount === 1 ? 'o' : 'i');
-          syncCloudCount.textContent = cloudCount + ' element' + (cloudCount === 1 ? 'o' : 'i');
-          syncConflictOverlay.classList.add('visible');
-          return;
-        }
-
-        // Both empty → do nothing
-        localStorage.setItem('notesLastSync', now());
-        updateSyncStatus('Sincronizzato ✓', '');
+        // At least one side has data → always ask the user
+        pendingDriveData = driveData;
+        syncLocalCount.textContent = localCount + ' element' + (localCount === 1 ? 'o' : 'i');
+        syncCloudCount.textContent = cloudCount + ' element' + (cloudCount === 1 ? 'o' : 'i');
+        syncConflictOverlay.classList.add('visible');
       });
     })
     .catch(function (err) {
@@ -2225,35 +2455,36 @@
     });
   });
 
+  // ── Shared merge logic (used by startup sync and manual sync) ──
+  function mergeItems(driveData) {
+    if (!driveData || !driveData.items) return false;
+    var mergedMap = {};
+    driveData.items.forEach(function (item) {
+      mergedMap[item.id] = item;
+    });
+    items.forEach(function (item) {
+      var driveItem = mergedMap[item.id];
+      if (!driveItem || item.updatedAt > driveItem.updatedAt) {
+        mergedMap[item.id] = item;
+      }
+    });
+    items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
+    _originalSaveData();
+    renderAll();
+    return true;
+  }
+
   // ── Startup Sync (silent but updates status) ──
   function performStartupSync() {
-    if (isSyncing) return;
-    if (!googleUser) return;
-
+    if (isSyncing || !googleUser) return;
     isSyncing = true;
 
     ensureToken()
-    .then(function () {
-      return findDriveFile();
-    })
+    .then(findDriveFile)
     .then(function (fileInfo) {
       if (fileInfo) {
         return readDriveFile(fileInfo.id).then(function (driveData) {
-          if (driveData && driveData.items) {
-            var mergedMap = {};
-            driveData.items.forEach(function (item) {
-              mergedMap[item.id] = item;
-            });
-            items.forEach(function (item) {
-              var driveItem = mergedMap[item.id];
-              if (!driveItem || new Date(item.updatedAt) > new Date(driveItem.updatedAt)) {
-                mergedMap[item.id] = item;
-              }
-            });
-            items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
-            _originalSaveData(); // Use original saveData to avoid re-triggering auto-sync
-            renderAll();
-          }
+          mergeItems(driveData);
           return writeDriveFile({ items: items });
         });
       } else {
@@ -2263,72 +2494,37 @@
     .then(function () {
       localStorage.setItem('notesLastSync', now());
       hasPendingChanges = false;
-      // Update status UI so settings shows "Sincronizzato" after startup
       updateSyncStatus('Sincronizzato ✓', '');
     })
     .catch(function (err) {
       console.error('Startup sync error:', err);
-      // Don't show error for startup sync — user didn't trigger it
     })
     .finally(function () {
       isSyncing = false;
     });
   }
 
-  // ── Main Sync Logic ──
+  // ── Main Sync Logic (reuses shared mergeItems) ──
   function syncWithDrive(silent) {
-    if (isSyncing) return;
-    if (!googleUser) return;
-
+    if (isSyncing || !googleUser) return;
     isSyncing = true;
     if (!silent) updateSyncStatus('Sincronizzazione...', 'syncing');
 
     ensureToken()
-    .then(function () {
-      return findDriveFile();
-    })
+    .then(findDriveFile)
     .then(function (fileInfo) {
       if (fileInfo) {
-        // File exists on Drive — read it
         return readDriveFile(fileInfo.id).then(function (driveData) {
-          // Merge: Drive data wins for items not modified locally since last sync
-          var lastSync = localStorage.getItem('notesLastSync');
-          var localData = { items: items };
-
-          if (driveData && driveData.items) {
-            // Simple strategy: use whichever has more recent updatedAt for each item
-            var mergedMap = {};
-
-            // Add all drive items
-            driveData.items.forEach(function (item) {
-              mergedMap[item.id] = item;
-            });
-
-            // Override with local items that are newer
-            items.forEach(function (item) {
-              var driveItem = mergedMap[item.id];
-              if (!driveItem || new Date(item.updatedAt) > new Date(driveItem.updatedAt)) {
-                mergedMap[item.id] = item;
-              }
-            });
-
-            items = Object.keys(mergedMap).map(function (key) { return mergedMap[key]; });
-            _originalSaveData(); // Use original saveData to avoid re-triggering auto-sync
-            renderAll();
-          }
-
-          // Upload merged data back to Drive
+          mergeItems(driveData);
           return writeDriveFile({ items: items });
         });
       } else {
-        // No file on Drive yet — upload local data
         return writeDriveFile({ items: items });
       }
     })
     .then(function () {
       localStorage.setItem('notesLastSync', now());
       hasPendingChanges = false;
-      // Always update status — both silent and non-silent syncs should reflect current state
       updateSyncStatus('Sincronizzato ✓', '');
       if (!silent) {
         updateSyncStatus('Ultima sync: adesso', 'success');
@@ -2367,17 +2563,16 @@
     clearTimeout(fastSyncTimer);
     fastSyncTimer = setTimeout(function() {
       if (isSyncing) {
-        // If a full sync is running, reschedule
-        scheduleFastSync();
+        // Block busy-waiting loop. The finally block below guarantees to pick up subsequent changes.
         return;
       }
       isSyncing = true;
+      hasPendingChanges = false; // Mark false beforehand so new typing during upload sets it true again
       updateSyncStatus('Salvataggio...', 'syncing');
       writeDriveFile({ items: items })
         .then(function() {
           localStorage.setItem('notesLastSync', now());
-          hasPendingChanges = false;
-          updateSyncStatus('Sincronizzato ✓', '');
+          if (!hasPendingChanges) updateSyncStatus('Sincronizzato ✓', '');
         })
         .catch(function(err) {
           console.error('Fast sync error:', err);
@@ -2385,12 +2580,13 @@
         })
         .finally(function() {
           isSyncing = false;
+          // If the user typed something WHILE we were uploading, trigger another sync cleanly.
+          if (hasPendingChanges) scheduleFastSync();
         });
     }, 500); // Trigger upload 500ms after the change
   }
 
   // Auto-sync after data changes
-  var autoSyncTimer = null;
   var hasPendingChanges = false;
   var _originalSaveData = saveData;
   saveData = function () {
@@ -2399,14 +2595,15 @@
     
     if (googleUser && googleAccessToken) {
       if (driveFileId) {
-        // We know the file exists, do a fast direct overwrite immediately
+        // We know the file exists, do a fast direct overwrite (~150ms)
         scheduleFastSync();
       } else {
-        // We don't have the file ID yet, fall back to slow standard sync
-        clearTimeout(autoSyncTimer);
-        autoSyncTimer = setTimeout(function () {
+        // We don't have the file ID yet, do a full sync (finds/creates the file)
+        // Debounce to avoid flooding if user is making rapid changes
+        clearTimeout(fastSyncTimer);
+        fastSyncTimer = setTimeout(function () {
           syncWithDrive(true);
-        }, 3000);
+        }, 2000);
       }
     }
   };
@@ -2416,7 +2613,7 @@
   function syncOnClose() {
     if (!driveFileId || isSyncing) return;
     hasPendingChanges = false;
-    clearTimeout(autoSyncTimer);
+    clearTimeout(fastSyncTimer);
     
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({

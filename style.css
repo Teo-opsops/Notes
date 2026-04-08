@@ -613,19 +613,49 @@ body {
   color: var(--text-tertiary);
 }
 
-.editor-textarea {
+.textarea-container {
+  position: relative;
   flex: 1 0 auto;
+  width: 100%;
+}
+
+.editor-backdrop {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 0 20px 80px 20px;
+  pointer-events: none;
+  font-family: inherit;
+  font-size: 0.90rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text-primary);
+  z-index: 1;
+}
+
+.editor-backdrop .url-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.editor-textarea {
+  position: relative;
   width: 100%;
   padding: 0 20px 80px 20px;
   background: transparent;
   border: none;
   outline: none;
-  color: var(--text-primary);
+  color: transparent !important;
+  caret-color: var(--text-primary);
   font-family: inherit;
   font-size: 0.90rem;
   line-height: 1.6;
   resize: none;
   overflow: hidden;
+  z-index: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .list-fab {
