@@ -2007,6 +2007,37 @@
   var isSyncing = false;
   var tokenClient = null;
 
+  // ── Sync Diagnostic Log ──
+  var syncLog = [];
+  function logSyncEvent(msg, type) {
+    syncLog.push({ time: new Date().toLocaleTimeString('it-IT'), msg: msg, type: type || 'info' });
+    if (syncLog.length > 30) syncLog.shift();
+    renderSyncLog();
+  }
+  function renderSyncLog() {
+    var el = document.getElementById('sync-details-log');
+    if (!el) return;
+    if (syncLog.length === 0) {
+      el.innerHTML = '<div class="sync-log-empty">Nessun evento recente</div>';
+      return;
+    }
+    var html = '';
+    for (var i = syncLog.length - 1; i >= 0; i--) {
+      var e = syncLog[i];
+      var cls = e.type === 'error' ? 'sync-log-error' : e.type === 'success' ? 'sync-log-success' : 'sync-log-info';
+      html += '<div class="sync-log-entry ' + cls + '"><span class="sync-log-time">' + e.time + '</span>' + e.msg + '</div>';
+    }
+    el.innerHTML = html;
+  }
+  window.toggleSyncDetails = function() {
+    var el = document.getElementById('sync-details-log');
+    var chevron = document.getElementById('sync-details-chevron');
+    if (!el) return;
+    var isHidden = el.style.display === 'none' || !el.style.display;
+    el.style.display = isHidden ? 'block' : 'none';
+    if (chevron) chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+  };
+
   // ── Token Persistence Helpers ──
   function saveTokenToStorage(accessToken, expiresIn) {
     var expiryTime = Date.now() + (expiresIn * 1000) - 60000; // 1 min margin
@@ -2058,7 +2089,7 @@
           reject(new Error('GAPI script not found'));
         }
       }
-    });
+    }).catch(function(e) { _gapiAuthReady = null; throw e; });
     return _gapiAuthReady;
   }
   // Fire immediately — download in background while app renders
@@ -2107,12 +2138,17 @@
             saveTokenToStorage(result.access_token, result.expires_in || 3600);
             schedulePredictiveTokenRefresh(result.expires_in || 3600);
           })
-          .catch(function () {});
+          .catch(function () {
+            logSyncEvent('Refresh preventivo fallito, retry tra 60s', 'error');
+            // Retry in 60s instead of giving up
+            schedulePredictiveTokenRefresh(360);
+          });
       }
     }, refreshDelayMs);
   }
 
   // ── Initialize Google Auth ──
+  var _googleAuthInitRetries = 0;
   function initGoogleAuth() {
     // Check if GIS library is loaded
     if (typeof google === 'undefined' || !google.accounts) {
@@ -2120,8 +2156,11 @@
       if (gScript && !gScript.dataset.hooked) {
         gScript.dataset.hooked = 'true';
         gScript.addEventListener('load', initGoogleAuth);
-      } else if (!gScript) {
-        setTimeout(initGoogleAuth, 500);
+      }
+      // Always add polling fallback — the load event may have already fired
+      _googleAuthInitRetries++;
+      if (_googleAuthInitRetries < 75) { // retry up to ~15s (75 × 200ms)
+        setTimeout(initGoogleAuth, 200);
       }
       return;
     }
@@ -2135,6 +2174,8 @@
       }
     });
 
+    logSyncEvent('Libreria Google caricata', 'info');
+
     // Check if we have a saved session
     var savedUser = localStorage.getItem('notesGoogleUser');
     if (savedUser) {
@@ -2147,6 +2188,7 @@
         if (storedTokenObj && storedTokenObj.token) {
           // Token is still valid — use it directly, completely silently
           googleAccessToken = storedTokenObj.token;
+          logSyncEvent('Token valido ripristinato dalla cache', 'success');
           
           var timeToExpireSec = Math.floor((storedTokenObj.expiry - Date.now()) / 1000);
           schedulePredictiveTokenRefresh(timeToExpireSec);
@@ -2164,6 +2206,7 @@
               googleAccessToken = result.access_token;
               saveTokenToStorage(result.access_token, result.expires_in || 3600);
               console.log('Notes: silent token refresh succeeded');
+              logSyncEvent('Token rinnovato silenziosamente', 'success');
               if (localStorage.getItem('notesLastSync')) {
                 performStartupSync();
               } else {
@@ -2172,6 +2215,7 @@
             })
             .catch(function (err) {
               console.log('Notes: silent token refresh failed —', err.message);
+              logSyncEvent('Refresh token fallito: ' + err.message, 'error');
               // Don't show any popup — user can manually sync from settings
               updateSyncStatus('Tocca Sincronizza per aggiornare', '');
             });
@@ -2190,8 +2234,23 @@
       return;
     }
     if (!tokenClient) {
-      alert('Le librerie Google non sono ancora caricate. Riprova tra un momento.');
-      return;
+      if (typeof google !== 'undefined' && google.accounts) {
+        initGoogleAuth();
+      }
+      if (!tokenClient) {
+        alert('Impossibile caricare i servizi Google. Verifica la tua connessione internet o riavvia l\'app.');
+        if (!document.querySelector('script[src*="accounts.google.com/gsi/client"]')) {
+          var s = document.createElement('script');
+          s.src = "https://accounts.google.com/gsi/client";
+          s.async = true; s.defer = true;
+          var s2 = document.createElement('script');
+          s2.src = "https://apis.google.com/js/api.js";
+          s2.async = true; s2.defer = true;
+          document.body.appendChild(s);
+          document.body.appendChild(s2);
+        }
+        return;
+      }
     }
     tokenClient.requestAccessToken();
   });
@@ -2317,10 +2376,12 @@
             saveTokenToStorage(result.access_token, result.expires_in || 3600);
             schedulePredictiveTokenRefresh(result.expires_in || 3600);
             console.log('Notes: token auto-refreshed during ensureToken');
+            logSyncEvent('Token auto-rinnovato', 'success');
             resolve(result.access_token);
           })
           .catch(function (err) {
             console.warn('Notes: silent refresh in ensureToken failed —', err.message);
+            logSyncEvent('Token scaduto, rinnovo fallito', 'error');
             reject(new Error('Token scaduto. Tocca Sincronizza per aggiornare.'));
           });
       } else {
@@ -2329,10 +2390,10 @@
     });
   }
 
-  // ── Google Drive API Helpers ──
-  function driveFetch(url, options) {
+  function driveFetch(url, options, _isRetry) {
     options = options || {};
     options.headers = options.headers || {};
+    // Always use the CURRENT token (critical for retries after refresh)
     options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
     // Keep internal TCP connections alive to bypass SSL handshake overhead on repeated syncs
     if (typeof options.keepalive === 'undefined') options.keepalive = true;
@@ -2343,10 +2404,30 @@
         throw err;
       }
       return res;
+    }).catch(function (err) {
+      // On auth errors (401/403), try refreshing the token and retry once
+      if (!_isRetry && err.status && (err.status === 401 || err.status === 403) && googleUser && googleUser.email) {
+        logSyncEvent('Errore auth ' + err.status + ', retry con token aggiornato...', 'info');
+        return silentRefreshViaGapi(googleUser.email).then(function (result) {
+          googleAccessToken = result.access_token;
+          saveTokenToStorage(result.access_token, result.expires_in || 3600);
+          schedulePredictiveTokenRefresh(result.expires_in || 3600);
+          // Re-create options to ensure fresh Authorization header
+          var retryOpts = JSON.parse(JSON.stringify(options));
+          retryOpts.headers['Authorization'] = 'Bearer ' + googleAccessToken;
+          if (options.body) retryOpts.body = options.body;
+          return driveFetch(url, retryOpts, true);
+        });
+      }
+      // Convert raw "Failed to fetch" into user-friendly message
+      if (err.message && err.message.toLowerCase().indexOf('failed to fetch') !== -1) {
+        logSyncEvent('Errore di rete (connessione assente)', 'error');
+        throw new Error('Errore di rete. Controlla la connessione.');
+      }
+      throw err;
     });
   }
 
-  // Find or create the sync file in appDataFolder
   function findDriveFile() {
     if (driveFileId) {
       return Promise.resolve({ id: driveFileId });
@@ -2372,12 +2453,21 @@
     });
   }
 
-  // Read file content from Drive
+  // Read file content from Drive (with stale fileId recovery)
   function readDriveFile(fileId) {
     return driveFetch(
       'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media'
     )
-    .then(function (res) { return res.json(); });
+    .then(function (res) { return res.json(); })
+    .catch(function (err) {
+      // File was deleted or account changed — clear stale cache and re-discover
+      if (err.status === 404) {
+        logSyncEvent('File cloud non trovato, ricerca...', 'info');
+        driveFileId = null;
+        localStorage.removeItem('notesDriveFileId');
+      }
+      throw err;
+    });
   }
 
   // Create or update file on Drive
@@ -2391,7 +2481,17 @@
         headers: { 'Content-Type': 'application/json' },
         body: jsonStr
       })
-      .then(function (res) { return res.json(); });
+      .then(function (res) { return res.json(); })
+      .catch(function (err) {
+        // File was deleted → clear stale ID and fall through to create
+        if (err.status === 404) {
+          logSyncEvent('File PATCH 404, ricreazione...', 'info');
+          driveFileId = null;
+          localStorage.removeItem('notesDriveFileId');
+          return writeDriveFile(data);
+        }
+        throw err;
+      });
     }
 
     // POST requires multipart to assign name and parents concurrently
@@ -2475,6 +2575,7 @@
     })
     .catch(function (err) {
       console.error('First sync check error:', err);
+      logSyncEvent('Errore primo check: ' + (err ? err.message : ''), 'error');
     });
   }
 
@@ -2526,6 +2627,7 @@
   function performStartupSync() {
     if (isSyncing || !googleUser) return;
     isSyncing = true;
+    logSyncEvent('Sync automatica avvio...', 'info');
 
     ensureToken()
     .then(findDriveFile)
@@ -2543,9 +2645,11 @@
       localStorage.setItem('notesLastSync', now());
       hasPendingChanges = false;
       updateSyncStatus('Sincronizzato ✓', '');
+      logSyncEvent('Sync completata ✓', 'success');
     })
     .catch(function (err) {
       console.error('Startup sync error:', err);
+      logSyncEvent('Errore sync avvio: ' + (err.message || err), 'error');
       updateSyncStatus('Errore sync iniziale', 'error');
     })
     .finally(function () {
@@ -2585,6 +2689,7 @@
     .catch(function (err) {
       console.error('Sync error:', err);
       var errMsg = err && err.message ? err.message : 'Errore di sync';
+      logSyncEvent('Errore sync: ' + errMsg, 'error');
       if (!silent) updateSyncStatus(errMsg, 'error');
     })
     .finally(function () {
