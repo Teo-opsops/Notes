@@ -51,6 +51,7 @@
   const editorBackBtn = document.getElementById('editor-back-btn');
   const editorTitleInput = document.getElementById('editor-title-input');
   const editorTextarea = document.getElementById('editor-textarea');
+  const editorTextareaContainer = document.getElementById('editor-textarea-container');
   const editorCharCount = document.getElementById('editor-char-count');
 
   // ── Utility ──
@@ -1139,19 +1140,26 @@
   const settingsOverlay = document.getElementById('settings-overlay');
   const settingsClose = document.getElementById('settings-close');
   const amoledToggle = document.getElementById('amoled-toggle');
-  const sortTypeSelect = document.getElementById('sort-type-select');
-  const themeDots = document.querySelectorAll('.theme-dot');
-
-  let currentTheme = localStorage.getItem('notesAppTheme') || 'white';
-  let isAmoled = localStorage.getItem('notesAppAmoled') !== 'false';
-
-  if (sortTypeSelect) {
-    sortTypeSelect.value = localStorage.getItem('notesAppSortType') || 'alpha';
-    sortTypeSelect.addEventListener('change', function() {
-      localStorage.setItem('notesAppSortType', this.value);
+  const sortSelect = document.getElementById('sort-select');
+  
+  // Ensure we have a default value if first time
+  if (!localStorage.getItem('notesAppSortType')) {
+    localStorage.setItem('notesAppSortType', 'alpha');
+  }
+  
+  const currentSortType = localStorage.getItem('notesAppSortType') || 'alpha';
+  if (sortSelect) {
+    sortSelect.value = currentSortType;
+    sortSelect.addEventListener('change', function() {
+      const val = this.value;
+      localStorage.setItem('notesAppSortType', val);
       renderAll();
     });
   }
+
+  const themeDots = document.querySelectorAll('.theme-dot');
+  let currentTheme = localStorage.getItem('notesAppTheme') || 'white';
+  let isAmoled = localStorage.getItem('notesAppAmoled') !== 'false';
 
   function applyTheme() {
     document.body.className = 'theme-' + currentTheme;
@@ -1417,7 +1425,7 @@
     note.mode = 'list';
     saveData();
 
-    editorTextarea.style.display = 'none';
+    editorTextareaContainer.style.display = 'none';
     checklistContainer.style.display = '';
     renderChecklist(note);
   }
@@ -1442,7 +1450,7 @@
     note.mode = 'note';
     saveData();
 
-    editorTextarea.style.display = '';
+    editorTextareaContainer.style.display = '';
     editorTextarea.value = note.content;
     if (typeof updateBackdrop === 'function') updateBackdrop();
     checklistContainer.style.display = 'none';
@@ -1763,7 +1771,7 @@
       isListMode = true;
       iconChecklist.style.display = 'none';
       iconPencil.style.display = '';
-      editorTextarea.style.display = 'none';
+      editorTextareaContainer.style.display = 'none';
       checklistContainer.style.display = '';
       editorTextarea.value = note.content || '';
       renderChecklist(note);
@@ -1771,7 +1779,7 @@
       isListMode = false;
       iconChecklist.style.display = '';
       iconPencil.style.display = 'none';
-      editorTextarea.style.display = '';
+      editorTextareaContainer.style.display = '';
       checklistContainer.style.display = 'none';
       editorTextarea.value = note.content || '';
     }
@@ -1824,7 +1832,7 @@
     isListMode = false;
     iconChecklist.style.display = '';
     iconPencil.style.display = 'none';
-    editorTextarea.style.display = '';
+    editorTextareaContainer.style.display = '';
     checklistContainer.style.display = 'none';
 
     // Reset attachments
@@ -2029,44 +2037,58 @@
     localStorage.removeItem('notesGoogleToken');
   }
 
-  // ── Silent Token Refresh via GAPI (hidden iframe, no popup) ──
-  // Uses gapi.auth.authorize with immediate:true which performs
-  // the entire OAuth flow inside a hidden iframe — zero visible UI.
-  function silentRefreshViaGapi(email) {
-    return new Promise(function (resolve, reject) {
-      if (typeof gapi === 'undefined') {
-        reject(new Error('GAPI not loaded'));
-        return;
+  // ── Pre-load GAPI Auth Module (eager, parallel with everything else) ──
+  // Loads gapi.auth module into memory immediately so token refreshes
+  // are near-instant instead of waiting for a network download.
+  var _gapiAuthReady = null;
+  function preloadGapiAuth() {
+    if (_gapiAuthReady) return _gapiAuthReady;
+    _gapiAuthReady = new Promise(function (resolve, reject) {
+      function doLoad() {
+        gapi.load('auth', { callback: resolve, onerror: function() { _gapiAuthReady = null; reject(); } });
       }
-      var authLoaded = false;
-      var loadTimeout = setTimeout(function () {
-        if (!authLoaded) reject(new Error('GAPI auth load timeout'));
-      }, 8000);
-
-      gapi.load('auth', {
-        callback: function () {
-          authLoaded = true;
-          clearTimeout(loadTimeout);
-          gapi.auth.authorize({
-            client_id: GOOGLE_CLIENT_ID,
-            scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-            immediate: true,
-            login_hint: email
-          }, function (authResult) {
-            if (authResult && !authResult.error && authResult.access_token) {
-              resolve({
-                access_token: authResult.access_token,
-                expires_in: parseInt(authResult.expires_in) || 3600
-              });
-            } else {
-              reject(new Error(authResult ? authResult.error : 'Silent auth failed'));
-            }
-          });
-        },
-        onerror: function () {
-          clearTimeout(loadTimeout);
-          reject(new Error('Failed to load GAPI auth module'));
+      if (typeof gapi !== 'undefined') {
+        doLoad();
+      } else {
+        var gapiScript = document.querySelector('script[src*="apis.google.com/js/api"]');
+        if (gapiScript) {
+          gapiScript.addEventListener('load', doLoad);
+        } else {
+          _gapiAuthReady = null;
+          reject(new Error('GAPI script not found'));
         }
+      }
+    });
+    return _gapiAuthReady;
+  }
+  // Fire immediately — download in background while app renders
+  preloadGapiAuth().catch(function() {});
+
+  // ── Silent Token Refresh via GAPI (hidden iframe, no popup) ──
+  // Uses the pre-loaded gapi.auth module for near-instant refresh.
+  function silentRefreshViaGapi(email) {
+    return preloadGapiAuth().then(function () {
+      return new Promise(function (resolve, reject) {
+        var authTimeout = setTimeout(function () {
+          reject(new Error('Silent auth timeout'));
+        }, 5000);
+
+        gapi.auth.authorize({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+          immediate: true,
+          login_hint: email
+        }, function (authResult) {
+          clearTimeout(authTimeout);
+          if (authResult && !authResult.error && authResult.access_token) {
+            resolve({
+              access_token: authResult.access_token,
+              expires_in: parseInt(authResult.expires_in) || 3600
+            });
+          } else {
+            reject(new Error(authResult ? authResult.error : 'Silent auth failed'));
+          }
+        });
       });
     });
   }
@@ -2250,7 +2272,6 @@
     googleSignedIn.style.display = '';
     if (googleUser) {
       profileName.textContent = googleUser.name || '';
-      profileEmail.textContent = googleUser.email || '';
       profileAvatar.src = googleUser.picture || '';
       profileAvatar.style.display = googleUser.picture ? '' : 'none';
     }
@@ -2259,31 +2280,51 @@
   function showSignedOutUI() {
     googleSignedOut.style.display = '';
     googleSignedIn.style.display = 'none';
-    syncIndicator.style.display = 'none';
+    if (syncIndicator) syncIndicator.style.display = 'none';
     updateSyncStatus('Non sincronizzato', '');
   }
 
   function updateSyncStatus(text, state) {
+    if (!syncStatusEl) return;
     syncStatusEl.textContent = text;
-    syncStatusEl.className = 'sync-status' + (state ? ' ' + state : '');
+    
+    // Clean states: syncing, success, error, or neutral
+    let className = 'sync-status-compact';
+    if (state === 'syncing') className += ' syncing';
+    else if (state === 'success') className += ' success';
+    else if (state === 'error') className += ' error';
+    
+    syncStatusEl.className = className;
   }
 
-  // ── Ensure we have a valid token (never shows popup) ──
+  // ── Ensure we have a valid token (auto-refreshes if expired) ──
   function ensureToken() {
     return new Promise(function (resolve, reject) {
-      if (googleAccessToken) {
-        // Verify token locally via expiration timestamp
-        var validToken = loadTokenFromStorage();
-        if (validToken) {
-          resolve(validToken);
-        } else {
-          // Token expired locally
-          googleAccessToken = null;
-          reject(new Error('Token expired. Please sync manually.'));
-        }
+      // 1. Check in-memory token via local expiry timestamp
+      var validToken = loadTokenFromStorage();
+      if (validToken) {
+        googleAccessToken = validToken;
+        resolve(validToken);
+        return;
+      }
+
+      // 2. Token expired or missing — attempt silent refresh
+      googleAccessToken = null;
+      if (googleUser && googleUser.email) {
+        silentRefreshViaGapi(googleUser.email)
+          .then(function (result) {
+            googleAccessToken = result.access_token;
+            saveTokenToStorage(result.access_token, result.expires_in || 3600);
+            schedulePredictiveTokenRefresh(result.expires_in || 3600);
+            console.log('Notes: token auto-refreshed during ensureToken');
+            resolve(result.access_token);
+          })
+          .catch(function (err) {
+            console.warn('Notes: silent refresh in ensureToken failed —', err.message);
+            reject(new Error('Token scaduto. Tocca Sincronizza per aggiornare.'));
+          });
       } else {
-        // No token available at all — can't sync silently
-        reject(new Error('No token available. Please sync manually.'));
+        reject(new Error('Nessun token disponibile. Accedi a Google.'));
       }
     });
   }
@@ -2295,7 +2336,14 @@
     options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
     // Keep internal TCP connections alive to bypass SSL handshake overhead on repeated syncs
     if (typeof options.keepalive === 'undefined') options.keepalive = true;
-    return fetch(url, options);
+    return fetch(url, options).then(function (res) {
+      if (!res.ok) {
+        var err = new Error('HTTP ' + res.status + ' ' + res.statusText);
+        err.status = res.status;
+        throw err;
+      }
+      return res;
+    });
   }
 
   // Find or create the sync file in appDataFolder
@@ -2498,6 +2546,7 @@
     })
     .catch(function (err) {
       console.error('Startup sync error:', err);
+      updateSyncStatus('Errore sync iniziale', 'error');
     })
     .finally(function () {
       isSyncing = false;
@@ -2535,7 +2584,8 @@
     })
     .catch(function (err) {
       console.error('Sync error:', err);
-      if (!silent) updateSyncStatus('Errore di sync', 'error');
+      var errMsg = err && err.message ? err.message : 'Errore di sync';
+      if (!silent) updateSyncStatus(errMsg, 'error');
     })
     .finally(function () {
       isSyncing = false;
@@ -2576,6 +2626,16 @@
         })
         .catch(function(err) {
           console.error('Fast sync error:', err);
+          // If the error is an auth/token issue, try to refresh and retry once
+          var isAuthError = (err && err.status && (err.status === 401 || err.status === 403));
+          if (isAuthError) {
+            ensureToken().then(function() {
+              scheduleFastSync(); // retry with refreshed token
+            }).catch(function() {
+              updateSyncStatus('Sessione scaduta', 'error');
+            });
+            return;
+          }
           updateSyncStatus('Errore di salvataggio', 'error');
         })
         .finally(function() {
@@ -2651,8 +2711,8 @@
 
       renderAll();
 
-      // Initialize Google Auth (with delay for script loading)
-      setTimeout(initGoogleAuth, 300);
+      // Initialize Google Auth immediately (no delay)
+      initGoogleAuth();
     });
   }
 
