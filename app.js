@@ -2495,12 +2495,16 @@
 
     if (driveFileId) {
       // Opt. 1: Ultra-fast Media Upload for PATCH (payload halved by skipping metadata + boundaries)
-      return driveFetch('https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=media', {
+      return driveFetch('https://www.googleapis.com/upload/drive/v3/files/' + driveFileId + '?uploadType=media&fields=id,modifiedTime', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: jsonStr
       })
       .then(function (res) { return res.json(); })
+      .then(function(file) {
+        if (file && file.modifiedTime) localStorage.setItem('notesCloudModifiedTime', file.modifiedTime);
+        return file;
+      })
       .catch(function (err) {
         // File was deleted → clear stale ID and fall through to create
         if (err.status === 404) {
@@ -2530,7 +2534,7 @@
       jsonStr + '\r\n' +
       '--' + boundary + '--';
 
-    return driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    return driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {
       method: 'POST',
       headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
       body: body
@@ -2539,6 +2543,7 @@
     .then(function (file) {
       driveFileId = file.id;
       localStorage.setItem('notesDriveFileId', driveFileId);
+      if (file.modifiedTime) localStorage.setItem('notesCloudModifiedTime', file.modifiedTime);
       return file;
     });
   }
@@ -2652,8 +2657,13 @@
     .then(findDriveFile)
     .then(function (fileInfo) {
       if (fileInfo) {
+        var lastDriveTime = localStorage.getItem('notesCloudModifiedTime');
+        if (lastDriveTime && fileInfo.modifiedTime === lastDriveTime && !hasPendingChanges) {
+           return Promise.resolve(); // Skip sync entirely: Cloud matches local exactly!
+        }
         return readDriveFile(fileInfo.id).then(function (driveData) {
           mergeItems(driveData);
+          if (fileInfo.modifiedTime) localStorage.setItem('notesCloudModifiedTime', fileInfo.modifiedTime);
           return writeDriveFile({ items: items });
         });
       } else {
@@ -2686,8 +2696,13 @@
     .then(findDriveFile)
     .then(function (fileInfo) {
       if (fileInfo) {
+        var lastDriveTime = localStorage.getItem('notesCloudModifiedTime');
+        if (lastDriveTime && fileInfo.modifiedTime === lastDriveTime && !hasPendingChanges) {
+           return Promise.resolve(); // Skip sync entirely: Cloud matches local exactly!
+        }
         return readDriveFile(fileInfo.id).then(function (driveData) {
           mergeItems(driveData);
+          if (fileInfo.modifiedTime) localStorage.setItem('notesCloudModifiedTime', fileInfo.modifiedTime);
           return writeDriveFile({ items: items });
         });
       } else {
