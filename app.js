@@ -2206,6 +2206,7 @@
           } else {
             firstSyncCheck();
           }
+        } else {
           // Token expired — request a new one via GIS
           logSyncEvent('Token scaduto, rinnovo via GIS...', 'info');
           updateSyncStatus('Rinnovo token...', 'syncing');
@@ -2416,8 +2417,8 @@
     options.headers = options.headers || {};
     // Always use the CURRENT token (critical for retries after refresh)
     options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
-    // Keep internal TCP connections alive to bypass SSL handshake overhead on repeated syncs
     if (typeof options.keepalive === 'undefined') options.keepalive = true;
+
     return fetch(url, options).then(function (res) {
       if (!res.ok) {
         var err = new Error('HTTP ' + res.status + ' ' + res.statusText);
@@ -2437,8 +2438,9 @@
           return driveFetch(url, retryOpts, true);
         });
       }
-      // Convert raw "Failed to fetch" into user-friendly message
-      if (err.message && err.message.toLowerCase().indexOf('failed to fetch') !== -1) {
+      // Convert raw network errors into user-friendly message
+      var errMsg = (err.message || '').toLowerCase();
+      if (errMsg.indexOf('failed to fetch') !== -1 || errMsg.indexOf('network') !== -1 || errMsg.indexOf('load failed') !== -1 || errMsg.indexOf('type error') !== -1) {
         logSyncEvent('Errore di rete (connessione assente)', 'error');
         throw new Error('Errore di rete. Controlla la connessione.');
       }
