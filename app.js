@@ -2077,51 +2077,61 @@
     _gapiAuthReady = new Promise(function (resolve, reject) {
       function doLoad() {
         gapi.load('auth', { callback: resolve, onerror: function() { _gapiAuthReady = null; reject(); } });
+  // ══════════════════════════════════════════════════════════
+  //  Token Refresh via GIS (Google Identity Services)
+  //  The old gapi.auth.authorize({ immediate: true }) API is
+  //  DEPRECATED and broken in modern browsers (third-party
+  //  cookies are blocked). We now use the GIS tokenClient
+  //  exclusively for obtaining tokens. When the user has
+  //  already granted consent, requestAccessToken({ prompt: '' })
+  //  opens a popup that auto-closes near-instantly.
+  // ══════════════════════════════════════════════════════════
+
+  // Pending token request: only one at a time.
+  // Stores { resolve, reject } from the Promise so the
+  // handleTokenResponse callback can fulfil it.
+  var _pendingTokenRequest = null;
+
+  // Request a fresh token via GIS tokenClient.
+  // If prompt is '' and user already consented, the popup
+  // auto-closes in <1s. Returns a Promise with the token.
+  function requestTokenSilently() {
+    if (_pendingTokenRequest) {
+      // Already in flight — return the same promise
+      return _pendingTokenRequest.promise;
+    }
+    var p = new Promise(function (resolve, reject) {
+      _pendingTokenRequest = { resolve: resolve, reject: reject };
+
+      if (!tokenClient) {
+        _pendingTokenRequest = null;
+        reject(new Error('tokenClient non inizializzato'));
+        return;
       }
-      if (typeof gapi !== 'undefined') {
-        doLoad();
-      } else {
-        var gapiScript = document.querySelector('script[src*="apis.google.com/js/api"]');
-        if (gapiScript) {
-          gapiScript.addEventListener('load', doLoad);
-        } else {
-          _gapiAuthReady = null;
-          reject(new Error('GAPI script not found'));
+
+      // Timeout: if nothing comes back within 15s, give up
+      _pendingTokenRequest.timeout = setTimeout(function () {
+        if (_pendingTokenRequest) {
+          var rej = _pendingTokenRequest.reject;
+          _pendingTokenRequest = null;
+          rej(new Error('Token request timeout'));
         }
-      }
-    }).catch(function(e) { _gapiAuthReady = null; throw e; });
-    return _gapiAuthReady;
-  }
-  // Fire immediately — download in background while app renders
-  preloadGapiAuth().catch(function() {});
+      }, 15000);
 
-  // ── Silent Token Refresh via GAPI (hidden iframe, no popup) ──
-  // Uses the pre-loaded gapi.auth module for near-instant refresh.
-  function silentRefreshViaGapi(email) {
-    return preloadGapiAuth().then(function () {
-      return new Promise(function (resolve, reject) {
-        var authTimeout = setTimeout(function () {
-          reject(new Error('Silent auth timeout'));
-        }, 5000);
-
-        gapi.auth.authorize({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-          immediate: true,
-          login_hint: email
-        }, function (authResult) {
-          clearTimeout(authTimeout);
-          if (authResult && !authResult.error && authResult.access_token) {
-            resolve({
-              access_token: authResult.access_token,
-              expires_in: parseInt(authResult.expires_in) || 3600
-            });
-          } else {
-            reject(new Error(authResult ? authResult.error : 'Silent auth failed'));
-          }
+      try {
+        tokenClient.requestAccessToken({
+          prompt: '',
+          login_hint: googleUser ? googleUser.email : ''
         });
-      });
+        logSyncEvent('Richiesta token a Google...', 'info');
+      } catch (err) {
+        clearTimeout(_pendingTokenRequest.timeout);
+        _pendingTokenRequest = null;
+        reject(err);
+      }
     });
+    _pendingTokenRequest.promise = p;
+    return p;
   }
 
   var tokenRefreshTimer = null;
@@ -2132,11 +2142,9 @@
     
     tokenRefreshTimer = setTimeout(function() {
       if (googleUser && googleUser.email) {
-        silentRefreshViaGapi(googleUser.email)
-          .then(function (result) {
-            googleAccessToken = result.access_token;
-            saveTokenToStorage(result.access_token, result.expires_in || 3600);
-            schedulePredictiveTokenRefresh(result.expires_in || 3600);
+        requestTokenSilently()
+          .then(function (accessToken) {
+            logSyncEvent('Token rinnovato preventivamente', 'success');
           })
           .catch(function () {
             logSyncEvent('Refresh preventivo fallito, retry tra 60s', 'error');
@@ -2170,7 +2178,15 @@
       scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
       callback: handleTokenResponse,
       error_callback: function (err) {
-        console.log('Token request error:', err);
+        console.warn('GIS token error:', err);
+        logSyncEvent('Errore richiesta token: ' + (err.type || err.message || JSON.stringify(err)), 'error');
+        // Reject the pending request if any
+        if (_pendingTokenRequest) {
+          clearTimeout(_pendingTokenRequest.timeout);
+          var rej = _pendingTokenRequest.reject;
+          _pendingTokenRequest = null;
+          rej(new Error(err.type || 'Token request error'));
+        }
       }
     });
 
@@ -2198,27 +2214,21 @@
           } else {
             firstSyncCheck();
           }
-        } else {
-          // Token expired — attempt invisible refresh via hidden iframe (gapi.auth)
-          // Uses immediate:true → hidden iframe, zero visible UI, no popup.
-          silentRefreshViaGapi(googleUser.email)
-            .then(function (result) {
-              googleAccessToken = result.access_token;
-              saveTokenToStorage(result.access_token, result.expires_in || 3600);
-              console.log('Notes: silent token refresh succeeded');
-              logSyncEvent('Token rinnovato silenziosamente', 'success');
-              if (localStorage.getItem('notesLastSync')) {
-                performStartupSync();
-              } else {
-                firstSyncCheck();
-              }
-            })
-            .catch(function (err) {
-              console.log('Notes: silent token refresh failed —', err.message);
-              logSyncEvent('Refresh token fallito: ' + err.message, 'error');
-              // Don't show any popup — user can manually sync from settings
-              updateSyncStatus('Tocca Sincronizza per aggiornare', '');
-            });
+          // Token expired — request a new one via GIS
+          logSyncEvent('Token scaduto, rinnovo via GIS...', 'info');
+          updateSyncStatus('Rinnovo token...', 'syncing');
+          requestTokenSilently().then(function () {
+            logSyncEvent('Token ottenuto, avvio sync', 'success');
+            if (localStorage.getItem('notesLastSync')) {
+              performStartupSync();
+            } else {
+              firstSyncCheck();
+            }
+          }).catch(function (err) {
+            console.log('Notes: silent token refresh failed —', err.message || err);
+            logSyncEvent('Rinnovo token fallito: ' + (err.message || err), 'error');
+            updateSyncStatus('Tocca Sincronizza per aggiornare', '');
+          });
         }
       } catch (e) {
         localStorage.removeItem('notesGoogleUser');
@@ -2238,17 +2248,23 @@
         initGoogleAuth();
       }
       if (!tokenClient) {
-        alert('Impossibile caricare i servizi Google. Verifica la tua connessione internet o riavvia l\'app.');
-        if (!document.querySelector('script[src*="accounts.google.com/gsi/client"]')) {
-          var s = document.createElement('script');
-          s.src = "https://accounts.google.com/gsi/client";
-          s.async = true; s.defer = true;
-          var s2 = document.createElement('script');
-          s2.src = "https://apis.google.com/js/api.js";
-          s2.async = true; s2.defer = true;
-          document.body.appendChild(s);
-          document.body.appendChild(s2);
-        }
+        alert('Connessione in corso... Assicurati di avere internet (o disattiva eventuali AdBlock) e riprova a premere tra 2 secondi.');
+        
+        var oldGsi = document.querySelectorAll('script[src*="accounts.google.com/gsi/client"]');
+        for (var i = 0; i < oldGsi.length; i++) oldGsi[i].remove();
+        var oldGapi = document.querySelectorAll('script[src*="apis.google.com/js/api.js"]');
+        for (var k = 0; k < oldGapi.length; k++) oldGapi[k].remove();
+
+        var s = document.createElement('script');
+        s.src = "https://accounts.google.com/gsi/client";
+        s.async = true; s.defer = true;
+        s.onload = initGoogleAuth;
+        var s2 = document.createElement('script');
+        s2.src = "https://apis.google.com/js/api.js";
+        s2.async = true; s2.defer = true;
+        document.body.appendChild(s);
+        document.body.appendChild(s2);
+
         return;
       }
     }
@@ -2258,6 +2274,12 @@
   // ── Handle Token Response (user-initiated sign-in only) ──
   function handleTokenResponse(response) {
     if (response.error) {
+      if (_pendingTokenRequest) {
+        clearTimeout(_pendingTokenRequest.timeout);
+        var rej = _pendingTokenRequest.reject;
+        _pendingTokenRequest = null;
+        rej(new Error(response.error));
+      }
       console.error('Google auth error:', response);
       updateSyncStatus('Errore di autenticazione', 'error');
       return;
@@ -2266,6 +2288,16 @@
     googleAccessToken = response.access_token;
     saveTokenToStorage(response.access_token, response.expires_in || 3600);
     schedulePredictiveTokenRefresh(response.expires_in || 3600);
+
+    // If this was triggered by requestTokenSilently(), resolve the promise
+    // and let the caller handle sync. No need to fetch user info again.
+    if (_pendingTokenRequest) {
+      clearTimeout(_pendingTokenRequest.timeout);
+      var res = _pendingTokenRequest.resolve;
+      _pendingTokenRequest = null;
+      res(response.access_token);
+      return;
+    }
 
     // Fetch user profile
     fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -2370,17 +2402,14 @@
       // 2. Token expired or missing — attempt silent refresh
       googleAccessToken = null;
       if (googleUser && googleUser.email) {
-        silentRefreshViaGapi(googleUser.email)
-          .then(function (result) {
-            googleAccessToken = result.access_token;
-            saveTokenToStorage(result.access_token, result.expires_in || 3600);
-            schedulePredictiveTokenRefresh(result.expires_in || 3600);
+        requestTokenSilently()
+          .then(function (accessToken) {
             console.log('Notes: token auto-refreshed during ensureToken');
             logSyncEvent('Token auto-rinnovato', 'success');
-            resolve(result.access_token);
+            resolve(accessToken);
           })
           .catch(function (err) {
-            console.warn('Notes: silent refresh in ensureToken failed —', err.message);
+            console.warn('Notes: token refresh in ensureToken failed —', err.message);
             logSyncEvent('Token scaduto, rinnovo fallito', 'error');
             reject(new Error('Token scaduto. Tocca Sincronizza per aggiornare.'));
           });
@@ -2408,13 +2437,10 @@
       // On auth errors (401/403), try refreshing the token and retry once
       if (!_isRetry && err.status && (err.status === 401 || err.status === 403) && googleUser && googleUser.email) {
         logSyncEvent('Errore auth ' + err.status + ', retry con token aggiornato...', 'info');
-        return silentRefreshViaGapi(googleUser.email).then(function (result) {
-          googleAccessToken = result.access_token;
-          saveTokenToStorage(result.access_token, result.expires_in || 3600);
-          schedulePredictiveTokenRefresh(result.expires_in || 3600);
+        return requestTokenSilently().then(function (newToken) {
           // Re-create options to ensure fresh Authorization header
           var retryOpts = JSON.parse(JSON.stringify(options));
-          retryOpts.headers['Authorization'] = 'Bearer ' + googleAccessToken;
+          retryOpts.headers['Authorization'] = 'Bearer ' + newToken;
           if (options.body) retryOpts.body = options.body;
           return driveFetch(url, retryOpts, true);
         });
