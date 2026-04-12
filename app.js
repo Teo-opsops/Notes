@@ -2417,7 +2417,6 @@
     options.headers = options.headers || {};
     // Always use the CURRENT token (critical for retries after refresh)
     options.headers['Authorization'] = 'Bearer ' + googleAccessToken;
-    if (typeof options.keepalive === 'undefined') options.keepalive = true;
 
     return fetch(url, options).then(function (res) {
       if (!res.ok) {
