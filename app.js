@@ -2068,15 +2068,7 @@
     localStorage.removeItem('notesGoogleToken');
   }
 
-  // ── Pre-load GAPI Auth Module (eager, parallel with everything else) ──
-  // Loads gapi.auth module into memory immediately so token refreshes
-  // are near-instant instead of waiting for a network download.
-  var _gapiAuthReady = null;
-  function preloadGapiAuth() {
-    if (_gapiAuthReady) return _gapiAuthReady;
-    _gapiAuthReady = new Promise(function (resolve, reject) {
-      function doLoad() {
-        gapi.load('auth', { callback: resolve, onerror: function() { _gapiAuthReady = null; reject(); } });
+
   // ══════════════════════════════════════════════════════════
   //  Token Refresh via GIS (Google Identity Services)
   //  The old gapi.auth.authorize({ immediate: true }) API is
