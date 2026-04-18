@@ -43,6 +43,7 @@
   const contextRename = document.getElementById('context-rename');
   const contextPin = document.getElementById('context-pin');
   const contextPinText = document.getElementById('context-pin-text');
+  const contextMove = document.getElementById('context-move');
   const contextDownload = document.getElementById('context-download');
   const contextShare = document.getElementById('context-share');
   const contextDelete = document.getElementById('context-delete');
@@ -363,6 +364,141 @@
     // Scroll to end
     breadcrumbEl.scrollLeft = breadcrumbEl.scrollWidth;
   }
+  // ══════════════════════════════════════════════════════════
+  //  Drag-Move System (Long-Press → Drag to Folder / Back)
+  // ══════════════════════════════════════════════════════════
+  let _activeDragGhost = null;
+  let _activeDragItemId = null;
+  let _activeDragWrapper = null;
+  let _lastHighlightedWrapper = null;
+
+  function startDragMove(e, item, wrapper, card) {
+    _activeDragItemId = item.id;
+    _activeDragWrapper = wrapper;
+
+    // Dim the original card
+    wrapper.classList.add('being-dragged');
+
+    // Create ghost clone
+    var ghost = card.cloneNode(true);
+    ghost.className = 'item-card drag-ghost';
+    ghost.style.width = card.offsetWidth + 'px';
+    ghost.style.left = (e.clientX - card.offsetWidth / 2) + 'px';
+    ghost.style.top = (e.clientY - 30) + 'px';
+    document.body.appendChild(ghost);
+    _activeDragGhost = ghost;
+
+    // Show the left-side "back" zone only if we are in a subfolder
+    var dragBackZone = document.getElementById('drag-back-zone');
+    if (currentFolderId !== null && dragBackZone) {
+      dragBackZone.classList.add('visible');
+    }
+  }
+
+  function updateDragMove(e) {
+    if (!_activeDragGhost) return;
+
+    // Move ghost
+    _activeDragGhost.style.left = (e.clientX - _activeDragGhost.offsetWidth / 2) + 'px';
+    _activeDragGhost.style.top = (e.clientY - 30) + 'px';
+
+    // Check drag-back zone (left side)
+    var dragBackZone = document.getElementById('drag-back-zone');
+    if (dragBackZone && dragBackZone.classList.contains('visible')) {
+      if (e.clientX < 75) {
+        dragBackZone.classList.add('drag-over');
+      } else {
+        dragBackZone.classList.remove('drag-over');
+      }
+    }
+
+    // Highlight folder targets under cursor
+    var newTarget = null;
+    var wrappers = itemList.querySelectorAll('.swipe-wrapper');
+    for (var i = 0; i < wrappers.length; i++) {
+      var w = wrappers[i];
+      if (w === _activeDragWrapper) continue; // Skip the item being dragged
+      var wId = w.dataset.id;
+      var wItem = getItem(wId);
+      if (!wItem || wItem.type !== 'folder') continue;
+      // Check if wItem is a descendant of dragged item (prevent circular move)
+      if (isDescendantOf(_activeDragItemId, wId)) continue;
+      var rect = w.getBoundingClientRect();
+      if (e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        newTarget = w;
+        break;
+      }
+    }
+
+    // Update highlight
+    if (_lastHighlightedWrapper && _lastHighlightedWrapper !== newTarget) {
+      _lastHighlightedWrapper.classList.remove('drag-target-folder');
+    }
+    if (newTarget) {
+      newTarget.classList.add('drag-target-folder');
+    }
+    _lastHighlightedWrapper = newTarget;
+  }
+
+  function endDragMove(e, item, wrapper) {
+    // Remove ghost
+    if (_activeDragGhost) {
+      _activeDragGhost.remove();
+      _activeDragGhost = null;
+    }
+
+    // Remove dim from original
+    wrapper.classList.remove('being-dragged');
+
+    // Check drop targets
+    var moved = false;
+
+    // 1) Check left "back" zone
+    var dragBackZone = document.getElementById('drag-back-zone');
+    if (dragBackZone && dragBackZone.classList.contains('drag-over')) {
+      // Move to parent of current folder
+      var currentFolder = getItem(currentFolderId);
+      var newParentId = currentFolder ? currentFolder.parentId : null;
+      item.parentId = newParentId;
+      item.updatedAt = now();
+      saveData();
+      moved = true;
+      if (navigator.vibrate) navigator.vibrate(15);
+    }
+
+    // 2) Check if dropped on a folder
+    if (!moved && _lastHighlightedWrapper) {
+      var targetId = _lastHighlightedWrapper.dataset.id;
+      var targetItem = getItem(targetId);
+      if (targetItem && targetItem.type === 'folder' && targetId !== item.id) {
+        item.parentId = targetId;
+        item.updatedAt = now();
+        saveData();
+        moved = true;
+        if (navigator.vibrate) navigator.vibrate(15);
+      }
+    }
+
+    // Cleanup highlights
+    if (_lastHighlightedWrapper) {
+      _lastHighlightedWrapper.classList.remove('drag-target-folder');
+      _lastHighlightedWrapper = null;
+    }
+
+    // Hide drag zones
+    if (dragBackZone) {
+      dragBackZone.classList.remove('visible');
+      dragBackZone.classList.remove('drag-over');
+    }
+
+    _activeDragItemId = null;
+    _activeDragWrapper = null;
+
+    if (moved) {
+      renderAll();
+    }
+  }
 
   // ── Render Item List ──
   function renderItems() {
@@ -470,7 +606,7 @@
         }
         card.appendChild(chevronDiv);
 
-        // Interactions (Click, Swipe, Drag)
+        // Interactions (Click, Swipe, Long-Press-Drag)
         let longPressTimer = null;
         let longPressTriggered = false;
         let isDragging = false;
@@ -480,6 +616,11 @@
         let isScrolling = false;
         let hasCapturedPointer = false;
         let currentX = 0, currentY = 0;
+        // Drag-move state
+        let isDragMoving = false;
+        let dragGhost = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let lastPointerId = null;
 
         card.addEventListener('pointerdown', function (e) {
           if (e.target.closest('.item-rename-icon')) return;
@@ -487,16 +628,20 @@
           isDragging = false;
           isSwiping = false;
           isScrolling = false;
+          isDragMoving = false;
           hasCapturedPointer = false;
           startX = e.clientX;
           startY = e.clientY;
-          // Do NOT capture pointer here — allow native vertical scrolling
+          lastPointerId = e.pointerId;
 
           longPressTriggered = false;
           longPressTimer = setTimeout(function () {
             longPressTriggered = true;
             if (navigator.vibrate) navigator.vibrate(25);
-            openContextMenu(item.id);
+            // Override touch-action so browser doesn't steal the gesture for scrolling
+            card.style.touchAction = 'none';
+            wrapper.style.touchAction = 'none';
+            // Don't open context menu yet — wait for release or drag
           }, 500);
         });
 
@@ -505,8 +650,30 @@
           const dx = e.clientX - startX;
           const dy = e.clientY - startY;
 
-          // Determine gesture direction on first significant movement
-          if (!isDragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+          // If long press active and user starts moving → enter drag-move mode
+          if (longPressTriggered && !isDragMoving) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 8) {
+              isDragMoving = true;
+              isDragging = true;
+              // Capture pointer for drag
+              try {
+                card.setPointerCapture(e.pointerId);
+                hasCapturedPointer = true;
+              } catch (err) {}
+              // Create floating ghost
+              startDragMove(e, item, wrapper, card);
+            }
+            return;
+          }
+
+          if (isDragMoving) {
+            updateDragMove(e);
+            return;
+          }
+
+          // Determine gesture direction on first significant movement (pre-longpress)
+          if (!isDragging && !longPressTriggered && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
             clearTimeout(longPressTimer);
 
             if (Math.abs(dy) > Math.abs(dx)) {
@@ -559,7 +726,13 @@
             hasCapturedPointer = false;
           }
 
-          const trashZone = document.getElementById('drag-trash-zone');
+          if (isDragMoving) {
+            endDragMove(e, item, wrapper);
+            isDragMoving = false;
+            isDragging = false;
+            longPressTriggered = false;
+            return;
+          }
 
           if (isSwiping) {
             if (Math.abs(currentX) > 80) {
@@ -586,6 +759,9 @@
               if (ir) { ir.style.opacity = '0'; ir.style.transform = 'scale(0.8)'; }
               setTimeout(function() { card.style.transition = ''; }, 300);
             }
+          } else if (longPressTriggered && !isDragging) {
+            // Long press release without drag → open context menu
+            openContextMenu(item.id);
           } else if (!isDragging && !longPressTriggered && e.type !== 'pointercancel') {
              const dx = e.clientX !== undefined ? Math.abs(e.clientX - startX) : 0;
              const dy = e.clientY !== undefined ? Math.abs(e.clientY - startY) : 0;
@@ -604,7 +780,11 @@
           isSwiping = false;
           isDragging = false;
           isScrolling = false;
+          longPressTriggered = false;
           wrapper.classList.remove('swiping');
+          // Restore touch-action for normal scroll behavior
+          card.style.touchAction = '';
+          wrapper.style.touchAction = '';
         }
 
         card.addEventListener('pointerup', handleRelease);
@@ -1107,6 +1287,148 @@
     }, 200);
   });
 
+  // ── Move Picker ──
+  const movePickerOverlay = document.getElementById('move-picker-overlay');
+  const movePickerPath = document.getElementById('move-picker-path');
+  const movePickerList = document.getElementById('move-picker-list');
+  const movePickerCancel = document.getElementById('move-picker-cancel');
+  const movePickerConfirm = document.getElementById('move-picker-confirm');
+  let moveItemId = null;
+  let movePickerCurrentFolder = null; // null = root
+
+  function isDescendantOf(itemId, parentId) {
+    // Check if parentId is a descendant of itemId (to prevent circular moves)
+    let current = parentId;
+    while (current) {
+      if (current === itemId) return true;
+      const item = getItem(current);
+      if (!item) break;
+      current = item.parentId;
+    }
+    return false;
+  }
+
+  function getMovePickerPath(folderId) {
+    if (folderId === null) return '/ Home';
+    const ancestors = getAncestors(folderId);
+    return '/ Home / ' + ancestors.map(function(a) { return a.name; }).join(' / ');
+  }
+
+  function renderMovePicker() {
+    movePickerList.innerHTML = '';
+    movePickerPath.textContent = getMovePickerPath(movePickerCurrentFolder);
+
+    var fragment = document.createDocumentFragment();
+
+    // Back button (go up) if not at root
+    if (movePickerCurrentFolder !== null) {
+      var backItem = document.createElement('button');
+      backItem.className = 'move-picker-item back-item';
+      backItem.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+        '<span>Indietro</span>';
+      backItem.addEventListener('click', function() {
+        var parent = getItem(movePickerCurrentFolder);
+        movePickerCurrentFolder = parent ? parent.parentId : null;
+        renderMovePicker();
+      });
+      fragment.appendChild(backItem);
+    }
+
+    // Show subfolders (excluding the item being moved and its descendants)
+    var folders = getChildren(movePickerCurrentFolder).filter(function(i) {
+      if (i.deleted) return false;
+      if (i.type !== 'folder') return false;
+      if (i.id === moveItemId) return false;
+      if (isDescendantOf(moveItemId, i.id)) return false;
+      return true;
+    }).sort(function(a, b) {
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    if (folders.length === 0 && movePickerCurrentFolder === null) {
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'move-picker-empty';
+      emptyEl.textContent = 'Nessuna cartella disponibile';
+      fragment.appendChild(emptyEl);
+    } else if (folders.length === 0) {
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'move-picker-empty';
+      emptyEl.textContent = 'Nessuna sottocartella';
+      fragment.appendChild(emptyEl);
+    }
+
+    folders.forEach(function(folder) {
+      var row = document.createElement('button');
+      row.className = 'move-picker-item';
+      var childFolders = getChildren(folder.id).filter(function(c) { return !c.deleted && c.type === 'folder' && c.id !== moveItemId; });
+      row.innerHTML = ICONS.folder +
+        '<span>' + (folder.name || 'Senza nome') + '</span>' +
+        (childFolders.length > 0 ? '<svg class="move-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' : '');
+      row.addEventListener('click', function() {
+        movePickerCurrentFolder = folder.id;
+        renderMovePicker();
+      });
+      fragment.appendChild(row);
+    });
+
+    movePickerList.appendChild(fragment);
+  }
+
+  function openMovePicker(itemId) {
+    moveItemId = itemId;
+    var item = getItem(itemId);
+    movePickerCurrentFolder = item ? item.parentId : null; // Start at the item's current parent
+    renderMovePicker();
+    movePickerOverlay.classList.add('visible');
+    history.pushState({ view: 'movePicker' }, '');
+  }
+
+  function closeMovePicker() {
+    movePickerOverlay.classList.remove('visible');
+    moveItemId = null;
+  }
+
+  if (contextMove) {
+    contextMove.addEventListener('click', function () {
+      var itemId = contextMenuItemId;
+      closeContextMenu();
+      history.back();
+
+      setTimeout(function () {
+        openMovePicker(itemId);
+      }, 200);
+    });
+  }
+
+  movePickerCancel.addEventListener('click', function() {
+    closeMovePicker();
+    history.back();
+  });
+
+  movePickerConfirm.addEventListener('click', function() {
+    if (moveItemId) {
+      var item = getItem(moveItemId);
+      if (item) {
+        // Don't move into itself
+        if (movePickerCurrentFolder !== moveItemId && !isDescendantOf(moveItemId, movePickerCurrentFolder)) {
+          item.parentId = movePickerCurrentFolder;
+          item.updatedAt = now();
+          saveData();
+          renderAll();
+        }
+      }
+    }
+    closeMovePicker();
+    history.back();
+  });
+
+  movePickerOverlay.addEventListener('click', function(e) {
+    if (e.target === movePickerOverlay) {
+      closeMovePicker();
+      history.back();
+    }
+  });
+
   // ── Android Back Button / Browser History ──
   window.addEventListener('popstate', function (e) {
     const state = e.state;
@@ -1123,6 +1445,9 @@
     }
     if (modalOverlay.classList.contains('visible')) {
       hideModal();
+    }
+    if (movePickerOverlay.classList.contains('visible')) {
+      closeMovePicker();
     }
     if (settingsOverlay.classList.contains('visible')) {
       settingsOverlay.classList.remove('visible');

@@ -529,8 +529,127 @@ body {
 }
 .context-menu-item svg {
   flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+.context-menu-item span {
+  font-size: 0.9rem;
+  color: #ffffff;
+  font-weight: 400;
+}
+.context-menu-item.danger svg {
+  color: var(--danger);
+}
+.context-menu-item.danger span {
+  color: var(--danger);
+}
+
+/* ── Move Picker ── */
+.move-picker {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 400px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(16px) scale(0.97);
+  transition: transform var(--transition-spring);
+  overflow: hidden;
+}
+.modal-overlay.visible .move-picker {
+  transform: translateY(0) scale(1);
+}
+.move-picker-header {
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.move-picker-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.move-picker-path {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.move-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  min-height: 120px;
+  max-height: 50vh;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.move-picker-list::-webkit-scrollbar { width: 3px; }
+.move-picker-list::-webkit-scrollbar-track { background: transparent; }
+.move-picker-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+.move-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: background var(--transition);
+  border: none;
+  background: none;
+  width: 100%;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+.move-picker-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.move-picker-item svg {
+  flex-shrink: 0;
   color: var(--text-secondary);
 }
+.move-picker-item span {
+  font-size: 0.9rem;
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.move-picker-item .move-chevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.move-picker-item.back-item {
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.move-picker-item.back-item svg {
+  color: var(--accent);
+}
+.move-picker-item.back-item span {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.move-picker-empty {
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+}
+.move-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 .editor-view {
   position: fixed;
   inset: 0;
@@ -768,6 +887,68 @@ body {
   background: var(--accent);
   filter: brightness(0.85);
   transform: translateY(0) scale(1.02);
+}
+
+/* ── Drag to Parent Zone (Left Side) ── */
+#drag-back-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 60px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 310;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.3);
+  border-top-right-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+#drag-back-zone.visible {
+  transform: translateX(0);
+}
+#drag-back-zone.drag-over {
+  background: #ffffff;
+  width: 75px;
+  transform: translateX(0);
+}
+#drag-back-zone svg {
+  color: #111;
+  transition: transform 0.2s;
+}
+#drag-back-zone.drag-over svg {
+  transform: scale(1.2) translateX(-3px);
+}
+
+/* ── Drag Ghost (Floating Card) ── */
+.drag-ghost {
+  position: fixed;
+  z-index: 500;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: scale(1.04);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.1);
+  border-radius: var(--radius);
+  transition: opacity 0.15s, transform 0.15s;
+  max-width: 80vw;
+}
+
+/* ── Folder Drop Target Highlight ── */
+.swipe-wrapper.drag-target-folder .item-card {
+  border-color: var(--accent) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(255,255,255,0.1);
+  transition: all 0.15s ease;
+}
+
+/* ── Item card being dragged (original) ── */
+.swipe-wrapper.being-dragged {
+  opacity: 0.3;
+  transition: opacity 0.2s;
 }
 
 /* ── Settings Menu ── */

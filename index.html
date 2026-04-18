@@ -102,6 +102,10 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 11.24V6a3 3 0 0 0-6 0v5.24a2 2 0 0 1-1.11 1.31l-1.78.9A2 2 0 0 0 5 15.24Z"></path></svg>
         <span id="context-pin-text">Fissa in alto</span>
       </button>
+      <button id="context-move" class="context-menu-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+        <span>Sposta</span>
+      </button>
       <button id="context-download" class="context-menu-item">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span>Scarica</span>
@@ -117,12 +121,32 @@
     </div>
   </div>
 
+    <!-- ── Move Picker (Folder Selector) ── -->
+    <div id="move-picker-overlay" class="modal-overlay">
+      <div class="move-picker">
+        <div class="move-picker-header">
+          <div class="move-picker-title">Sposta in...</div>
+          <div id="move-picker-path" class="move-picker-path">/ Home</div>
+        </div>
+        <div id="move-picker-list" class="move-picker-list"></div>
+        <div class="move-picker-actions">
+          <button id="move-picker-cancel" class="modal-btn modal-btn-cancel">Annulla</button>
+          <button id="move-picker-confirm" class="modal-btn modal-btn-confirm">Conferma</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Drag to Trash Zone ── -->
     <div id="drag-trash-zone">
       <div style="display:flex; flex-direction:column; align-items:center;">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         <span style="font-size:0.85rem; font-weight:600; margin-top:4px;">Rilascia per eliminare</span>
       </div>
+    </div>
+
+    <!-- ── Drag to Parent Zone (Left Side) ── -->
+    <div id="drag-back-zone">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
     </div>
 
     <!-- ── Sync Conflict Dialog ── -->
