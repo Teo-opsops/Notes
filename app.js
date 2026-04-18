@@ -393,6 +393,7 @@
     var dragBackZone = document.getElementById('drag-back-zone');
     if (currentFolderId !== null && dragBackZone) {
       dragBackZone.classList.add('visible');
+      document.body.classList.add('drag-shift-right');
     }
 
     // Attach global listeners to handle navigation transitions
@@ -532,6 +533,7 @@
       dragBackZone.classList.remove('visible');
       dragBackZone.classList.remove('drag-over');
     }
+    document.body.classList.remove('drag-shift-right');
 
     _activeDragItemId = null;
     _activeDragWrapper = null;
@@ -874,8 +876,13 @@
     if (_activeDragItemId) {
       var dragBackZone = document.getElementById('drag-back-zone');
       if (dragBackZone) {
-        if (currentFolderId !== null) dragBackZone.classList.add('visible');
-        else dragBackZone.classList.remove('visible');
+        if (currentFolderId !== null) {
+          dragBackZone.classList.add('visible');
+          document.body.classList.add('drag-shift-right');
+        } else {
+          dragBackZone.classList.remove('visible');
+          document.body.classList.remove('drag-shift-right');
+        }
       }
     }
   }
