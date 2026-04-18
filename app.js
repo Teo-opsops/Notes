@@ -371,6 +371,7 @@
   let _activeDragItemId = null;
   let _activeDragWrapper = null;
   let _lastHighlightedWrapper = null;
+  let _dragBackTimer = null;
 
   function startDragMove(e, item, wrapper, card) {
     _activeDragItemId = item.id;
@@ -393,6 +394,18 @@
     if (currentFolderId !== null && dragBackZone) {
       dragBackZone.classList.add('visible');
     }
+
+    // Attach global listeners to handle navigation transitions
+    window.addEventListener('pointermove', updateDragMove);
+    window.addEventListener('pointerup', _onGlobalPointerUp);
+    window.addEventListener('pointercancel', _onGlobalPointerUp);
+  }
+
+  function _onGlobalPointerUp(e) {
+    window.removeEventListener('pointermove', updateDragMove);
+    window.removeEventListener('pointerup', _onGlobalPointerUp);
+    window.removeEventListener('pointercancel', _onGlobalPointerUp);
+    endDragMove(e);
   }
 
   function updateDragMove(e) {
@@ -407,8 +420,25 @@
     if (dragBackZone && dragBackZone.classList.contains('visible')) {
       if (e.clientX < 75) {
         dragBackZone.classList.add('drag-over');
+        
+        // Hover-to-up logic
+        if (!_dragBackTimer) {
+          _dragBackTimer = setTimeout(function() {
+            const currentFolder = getItem(currentFolderId);
+            if (currentFolder) {
+              navigateToFolder(currentFolder.parentId);
+              if (navigator.vibrate) navigator.vibrate([15, 30, 20]);
+              // Clear timer to allow it to restart in the new parent folder if still hovering
+              _dragBackTimer = null;
+            }
+          }, 750);
+        }
       } else {
         dragBackZone.classList.remove('drag-over');
+        if (_dragBackTimer) {
+          clearTimeout(_dragBackTimer);
+          _dragBackTimer = null;
+        }
       }
     }
 
@@ -417,12 +447,12 @@
     var wrappers = itemList.querySelectorAll('.swipe-wrapper');
     for (var i = 0; i < wrappers.length; i++) {
       var w = wrappers[i];
-      if (w === _activeDragWrapper) continue; // Skip the item being dragged
+      if (w.dataset.id === _activeDragItemId) continue; // Skip item being dragged
       var wId = w.dataset.id;
       var wItem = getItem(wId);
       if (!wItem || wItem.type !== 'folder') continue;
-      // Check if wItem is a descendant of dragged item (prevent circular move)
       if (isDescendantOf(_activeDragItemId, wId)) continue;
+
       var rect = w.getBoundingClientRect();
       if (e.clientX >= rect.left && e.clientX <= rect.right &&
           e.clientY >= rect.top && e.clientY <= rect.bottom) {
@@ -441,7 +471,17 @@
     _lastHighlightedWrapper = newTarget;
   }
 
-  function endDragMove(e, item, wrapper) {
+  function endDragMove(e) {
+    if (!_activeDragItemId) return;
+
+    if (_dragBackTimer) {
+      clearTimeout(_dragBackTimer);
+      _dragBackTimer = null;
+    }
+
+    var item = getItem(_activeDragItemId);
+    var wrapper = _activeDragWrapper;
+
     // Remove ghost
     if (_activeDragGhost) {
       _activeDragGhost.remove();
@@ -449,10 +489,11 @@
     }
 
     // Remove dim from original
-    wrapper.classList.remove('being-dragged');
+    if (wrapper) wrapper.classList.remove('being-dragged');
 
     // Check drop targets
     var moved = false;
+    if (!item) return;
 
     // 1) Check left "back" zone
     var dragBackZone = document.getElementById('drag-back-zone');
@@ -528,6 +569,12 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'swipe-wrapper';
         wrapper.dataset.id = item.id;
+        
+        // If this item is currently being dragged, maintain the dim state
+        if (_activeDragItemId === item.id) {
+          wrapper.classList.add('being-dragged');
+          _activeDragWrapper = wrapper;
+        }
 
         // Background for swipe
         const swipeBg = document.createElement('div');
@@ -668,7 +715,7 @@
           }
 
           if (isDragMoving) {
-            updateDragMove(e);
+            // Global listeners handle updateDragMove and endDragMove
             return;
           }
 
@@ -727,7 +774,7 @@
           }
 
           if (isDragMoving) {
-            endDragMove(e, item, wrapper);
+            // endDragMove handled by global listener
             isDragMoving = false;
             isDragging = false;
             longPressTriggered = false;
@@ -822,6 +869,15 @@
     renderTopBar();
     renderBreadcrumb();
     renderItems();
+
+    // If a drag is active, Ensure the drag-back-zone visibility is updated for the new folder view
+    if (_activeDragItemId) {
+      var dragBackZone = document.getElementById('drag-back-zone');
+      if (dragBackZone) {
+        if (currentFolderId !== null) dragBackZone.classList.add('visible');
+        else dragBackZone.classList.remove('visible');
+      }
+    }
   }
 
   // ── Top Bar Back Button ──
