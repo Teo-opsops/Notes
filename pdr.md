@@ -10,10 +10,9 @@ L'app implementa la **persistenza automatica dello stato** tramite salvataggio o
 - **Sfondo**: Nero puro (`#000000`) — ottimizzato per display AMOLED.
 - **Bordi**: Bianchi/grigi chiari (`rgba(255,255,255,0.12)`) per i box e gli elementi interattivi.
 - **Tipografia**: Font "Inter" da Google Fonts — pulito, moderno e leggibile (dimensione testo dell'editor impostata a `0.90rem` per massimizzare visibilità e minimalismo).
-- **Palette colori**: Monocromatica in bianco e nero con accenti minimali (il colore di **ogni elemento originariamente bianco**, come icone, bottoni FAB, sfondi dei modali e titoli, viene modificato dinamicamente in base al tema scelto nelle impostazioni).
-- **Icone**: SVG line-art che ereditano il colore dell'accento del tema, stile minimal e coerente.
-- **Animazioni**: Transizioni fluide e sottili per navigazione, apertura note e interazioni.
-- **Toggle Switch**: Il pulsante di commutazione (es. AMOLED) utilizza una pallina bianca semitrasparente (`rgba(255,255,255,0.7)`) nello stato spento e una pallina del colore dello sfondo elevato (`--bg-elevated`) nello stato acceso, garantendo contrasto visivo con qualsiasi colore accento, incluso il bianco.
+- **Palette colori (Gamification)**: Implementata la meccanica ereditata da GluGlu, con 3 temi base (Auto basato sul sistema, Chiaro, Scuro) e una palette di 8 colori di accento (Blu, Verde, Viola, Arancione, Rosa, Rosso, Teal, Indaco) che sostituiscono la vecchia dinamica di temi predefiniti monolitici.
+- **Icone**: SVG line-art che ereditano il colore dell'accento selezionato (`var(--accent)`), stile minimal e coerente.
+- **Animazioni**: Transizioni fluide e sottili per navigazione, apertura note, interazioni d'interfaccia e toggle theme switch.
 
 ## 3. Struttura e Navigazione
 L'app è basata su una **struttura gerarchica ad albero**:
@@ -82,7 +81,11 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Robustezza DOM**: Tutti i riferimenti a elementi opzionali dell'interfaccia (come pulsanti che potrebbero non essere presenti nel DOM) vengono verificati con un null-check prima di aggiungere event listener, per evitare che un elemento mancante causi un crash dello script che blocchi l'esecuzione di tutto il codice successivo (inclusa l'autenticazione Google).
 
 ## 8. Profilo Google & Sincronizzazione Drive
-- **Sezione Cloud Sync nelle Impostazioni**: Card dedicata nelle impostazioni con un design estremamente minimal ed elegante:
+- **Sezione Impostazioni e Aspetto**: Il menu Impostazioni ha adottato l'architettura grafica dell'app GluGlu: 
+  - Ogni sezione è accompagnata da un piccolo `settings-section-title` in MAIUSCOLETTO grigio.
+  - Ogni singola preferenza o bottone è autonomamente incapsulata in un propria `settings-card` espansa su un'unica riga flessibile con icona, etichetta e controllo interattivo per la massima chiarezza e per prevenire agglomeramenti.
+  - La vecchia meccanica dei "temi" e "AMOLED" è stata rimossa per fare spazio alla combinazione Theme (Auto, Chiaro, Scuro) + Accent (8 swatches customizzabili tramite variabili CSS in tempo reale come in GluGlu).
+- **Sezione Cloud Sync nelle Impostazioni**: Card dedicata nelle impostazioni con un design minimal ed elegante:
   - Stato disconnesso: Un singolo pulsante "Connetti account Google" con logo Google minimale.
   - Stato connesso: Una vista compatta che mostra l'avatar circolare dell'utente, il nome, e lo stato di sincronizzazione in tempo reale. A destra, due pulsanti circolari minimali (icone) permettono rispettivamente di attivare la sincronizzazione manuale e di disconnettere l'account.
 - **Autenticazione**: Utilizza Google Identity Services (GIS) con OAuth 2.0 Token Model. Scope richiesti: `drive.appdata`, `userinfo.profile`, `userinfo.email`.

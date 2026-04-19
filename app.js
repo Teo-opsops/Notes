@@ -1527,7 +1527,6 @@
   const settingsBtn = document.getElementById('settings-btn');
   const settingsOverlay = document.getElementById('settings-overlay');
   const settingsClose = document.getElementById('settings-close');
-  const amoledToggle = document.getElementById('amoled-toggle');
   const sortSelect = document.getElementById('sort-select');
   
   // Ensure we have a default value if first time
@@ -1545,37 +1544,72 @@
     });
   }
 
-  const themeDots = document.querySelectorAll('.theme-dot');
-  let currentTheme = localStorage.getItem('notesAppTheme') || 'white';
-  let isAmoled = localStorage.getItem('notesAppAmoled') !== 'false';
+  const ACCENT_COLORS = {
+    'blue': '#38bdf8',
+    'green': '#10b981',
+    'purple': '#a78bfa',
+    'orange': '#f59e0b',
+    'pink': '#f472b6',
+    'red': '#ef4444',
+    'teal': '#14b8a6',
+    'indigo': '#6366f1'
+  };
+
+  let currentAppTheme = localStorage.getItem('notesAppThemeNew') || 'auto';
+  let currentAppAccent = localStorage.getItem('notesAppAccentNew') || 'blue';
 
   function applyTheme() {
-    document.body.className = 'theme-' + currentTheme;
-    if (isAmoled) {
-      document.body.classList.add('amoled');
-      amoledToggle.checked = true;
-    } else {
-      document.body.classList.remove('amoled');
-      amoledToggle.checked = false;
+    let baseTheme = currentAppTheme;
+    if (baseTheme === 'auto') {
+      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      baseTheme = prefersLight ? 'light' : 'dark';
     }
-    themeDots.forEach(function(dot) {
-      dot.classList.toggle('active', dot.dataset.theme === currentTheme);
+
+    document.documentElement.setAttribute('data-theme', baseTheme);
+    const accentHex = ACCENT_COLORS[currentAppAccent] || ACCENT_COLORS['blue'];
+    document.documentElement.style.setProperty('--accent', accentHex);
+
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', baseTheme === 'light' ? '#ffffff' : '#000000');
+    }
+
+    syncThemeUI();
+  }
+
+  function syncThemeUI() {
+    document.querySelectorAll('.theme-option').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.theme === currentAppTheme);
+    });
+    document.querySelectorAll('.color-swatch').forEach(function(sw) {
+      sw.classList.toggle('active', sw.dataset.color === currentAppAccent);
     });
   }
 
-  themeDots.forEach(function(dot) {
-    dot.addEventListener('click', function() {
-      currentTheme = this.dataset.theme;
-      localStorage.setItem('notesAppTheme', currentTheme);
+  document.querySelectorAll('.theme-option').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      currentAppTheme = this.dataset.theme;
+      localStorage.setItem('notesAppThemeNew', currentAppTheme);
       applyTheme();
     });
   });
 
-  amoledToggle.addEventListener('change', function() {
-    isAmoled = this.checked;
-    localStorage.setItem('notesAppAmoled', isAmoled);
-    applyTheme();
+  document.querySelectorAll('.color-swatch').forEach(function(sw) {
+    sw.addEventListener('click', function() {
+      currentAppAccent = this.dataset.color;
+      localStorage.setItem('notesAppAccentNew', currentAppAccent);
+      applyTheme();
+    });
   });
+
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
+    if (currentAppTheme === 'auto') {
+      applyTheme();
+    }
+  });
+
+  // Call it immediately on load (in case body onload is not used for this)
+  applyTheme();
 
   settingsBtn.addEventListener('click', function() {
     settingsOverlay.classList.add('visible');
