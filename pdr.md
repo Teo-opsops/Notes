@@ -84,7 +84,7 @@ L'app è basata su una **struttura gerarchica ad albero**:
 - **Sezione Impostazioni e Aspetto**: Il menu Impostazioni ha adottato l'architettura grafica dell'app GluGlu: 
   - Ogni sezione è accompagnata da un piccolo `settings-section-title` in MAIUSCOLETTO grigio.
   - Ogni singola preferenza o bottone è autonomamente incapsulata in un propria `settings-card` espansa su un'unica riga flessibile con icona, etichetta e controllo interattivo per la massima chiarezza e per prevenire agglomeramenti.
-  - La vecchia meccanica dei "temi" e "AMOLED" è stata rimossa per fare spazio alla combinazione Theme (Auto, Chiaro, Scuro) + Accent (8 swatches customizzabili tramite variabili CSS in tempo reale come in GluGlu).
+  - La vecchia meccanica dei "temi" e "AMOLED" è stata rimossa per fare spazio alla combinazione Theme (Auto, Chiaro, Scuro) + Accent (8 swatches customizzabili tramite variabili CSS in tempo reale come in GluGlu). I blocchetti delle opzioni (bottoni del tema e swatches dei colori) sono stati riadattati con dimensioni maggiorate, aumentando dinamicamente il padding per evitare che il testo al loro interno appaia troncato o incollato ai bordi, migliorandone notevolmente la leggibilità.
 - **Sezione Cloud Sync nelle Impostazioni**: Card dedicata nelle impostazioni con un design minimal ed elegante:
   - Stato disconnesso: Un singolo pulsante "Connetti account Google" con logo Google minimale.
   - Stato connesso: Una vista compatta che mostra l'avatar circolare dell'utente, il nome, e lo stato di sincronizzazione in tempo reale. A destra, due pulsanti circolari minimali (icone) permettono rispettivamente di attivare la sincronizzazione manuale e di disconnettere l'account.
