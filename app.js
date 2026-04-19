@@ -1545,6 +1545,7 @@
   }
 
   const ACCENT_COLORS = {
+    'white': '#ffffff',
     'blue': '#38bdf8',
     'green': '#10b981',
     'purple': '#a78bfa',
@@ -1556,7 +1557,7 @@
   };
 
   let currentAppTheme = localStorage.getItem('notesAppThemeNew') || 'auto';
-  let currentAppAccent = localStorage.getItem('notesAppAccentNew') || 'blue';
+  let currentAppAccent = localStorage.getItem('notesAppAccentNew') || 'white';
 
   function applyTheme() {
     let baseTheme = currentAppTheme;
@@ -1566,7 +1567,7 @@
     }
 
     document.documentElement.setAttribute('data-theme', baseTheme);
-    const accentHex = ACCENT_COLORS[currentAppAccent] || ACCENT_COLORS['blue'];
+    const accentHex = ACCENT_COLORS[currentAppAccent] || ACCENT_COLORS['white'];
     document.documentElement.style.setProperty('--accent', accentHex);
 
     const metaTheme = document.querySelector('meta[name="theme-color"]');
